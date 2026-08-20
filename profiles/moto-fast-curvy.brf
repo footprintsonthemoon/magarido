@@ -1,0 +1,356 @@
+# GENERATED FILE - DO NOT EDIT
+#
+# Source: src/moto-base.brf
+# Preset: fast-curvy
+# Name: Fast Curvy
+#
+
+#
+# BRouter Motorcycle Profiles
+#
+# Canonical source profile.
+#
+# DO NOT create profile-specific routing logic here.
+# User-facing profiles are generated from this file and config/presets.yaml.
+#
+# Phase 1:
+#   - motorcycle access
+#   - one-way restrictions
+#   - turn restrictions
+#   - barriers
+#   - basic road eligibility
+#
+# Curviness and hilliness are defined but intentionally not yet applied.
+#
+
+---context:global
+
+#
+# Profile type
+#
+
+assign validForCars = true
+
+#
+# Primary routing parameters
+#
+# These values are replaced by the profile generator.
+#
+
+assign curviness = 1
+# 0 = fast
+# 1 = fast-curvy
+# 2 = curvy
+# 3 = very-curvy
+
+assign hilliness = 0
+# 0 = neutral
+# 1 = hilly
+# 2 = very-hilly
+
+#
+# Independent options
+#
+
+assign avoid_motorways = false
+assign avoid_toll = false
+assign allow_unpaved = false
+assign allow_ferries = true
+
+#
+# BRouter behaviour
+#
+
+assign considerTurnRestrictions = true
+
+assign add_beeline = false
+assign processUnusedTags = false
+
+#
+# OsmAnd turn instructions
+#
+
+assign turnInstructionMode = 3
+assign turnInstructionRoundabouts = true
+
+#
+# Elevation
+#
+# Phase 1 deliberately applies no elevation preference.
+#
+
+assign downhillcost = 0
+assign downhillcutoff = 0
+
+assign uphillcost = 0
+assign uphillcutoff = 0
+
+
+---context:way
+
+#
+# Basic classifications
+#
+
+assign isresidentialorliving =
+    or highway=residential|living_street
+       living_street=yes
+
+assign islinktype =
+    highway=motorway_link|trunk_link|primary_link|secondary_link|tertiary_link
+
+assign isferry =
+    route=ferry
+
+#
+# Motorcycle access
+#
+# OSM access precedence:
+#
+# motorcycle
+#   -> motor_vehicle
+#      -> vehicle
+#         -> access
+#            -> implicit highway default
+#
+# A motorcycle-specific tag therefore overrides more general access tags.
+#
+
+assign default_motorcycle_access =
+    switch highway=motorway|motorway_link       true
+    switch highway=trunk|trunk_link             true
+    switch highway=primary|primary_link         true
+    switch highway=secondary|secondary_link     true
+    switch highway=tertiary|tertiary_link       true
+    switch highway=unclassified                 true
+    switch isresidentialorliving                true
+    switch highway=service                      true
+    switch isferry                              allow_ferries
+    false
+
+assign general_access =
+    switch access=
+        default_motorcycle_access
+        access=yes|permissive|designated|destination
+
+assign vehicle_access =
+    switch vehicle=
+        general_access
+        vehicle=yes|permissive|designated|destination
+
+assign motor_vehicle_access =
+    switch motor_vehicle=
+        vehicle_access
+        motor_vehicle=yes|permissive|designated|destination
+
+assign motorcycle_access =
+    switch motorcycle=
+        motor_vehicle_access
+        motorcycle=yes|permissive|designated|destination
+
+#
+# Destination-only access
+#
+# Retained as metadata so that later phases can penalise destination-only
+# roads without confusing them with fully prohibited roads.
+#
+
+assign motorcycle_access_destination =
+    switch motorcycle=
+        switch motor_vehicle=
+            switch vehicle=
+                access=destination
+                vehicle=destination
+            motor_vehicle=destination
+        motorcycle=destination
+
+#
+# One-way handling
+#
+
+assign isbadoneway =
+    if reversedirection=yes
+    then
+        if oneway=
+        then junction=roundabout
+        else oneway=yes|true|1
+    else
+        oneway=-1
+
+assign isgoodoneway =
+    if reversedirection=yes
+    then oneway=-1
+    else
+        if oneway=
+        then junction=roundabout
+        else oneway=yes|true|1
+
+#
+# Basic road eligibility
+#
+# Phase 1 deliberately supports normal paved-road classes only.
+# Tracks, paths and other off-road classes will be handled explicitly
+# during the surface phase.
+#
+
+assign road_is_supported =
+    or highway=motorway|motorway_link
+    or highway=trunk|trunk_link
+    or highway=primary|primary_link
+    or highway=secondary|secondary_link
+    or highway=tertiary|tertiary_link
+    or highway=unclassified
+    or isresidentialorliving
+    or highway=service
+       isferry
+
+#
+# Access result
+#
+
+assign way_is_usable =
+    and motorcycle_access
+    and road_is_supported
+        not isbadoneway
+
+#
+# Ferry classifier
+#
+# BRouter can apply initial costs when changing classifier.
+#
+
+assign classifier_none = 1
+assign classifier_ferry = 2
+
+assign initialclassifier =
+    if isferry
+    then classifier_ferry
+    else classifier_none
+
+#
+# Phase-1 ferry transition cost.
+#
+# This is intentionally conservative and will be calibrated later.
+#
+
+assign initialcost =
+    if not way_is_usable
+    then 1000000
+    else if isferry
+    then 10000
+    else 0
+
+#
+# Turn cost
+#
+# Kept constant in Phase 1. Curviness must not yet affect it.
+#
+
+assign turncost =
+    if junction=roundabout
+    then 0
+    else 90
+
+#
+# Phase-1 cost
+#
+# All supported roads deliberately have the same basic distance cost.
+# Road attractiveness is introduced in Phase 2/3.
+#
+
+assign costfactor =
+    if way_is_usable
+    then 1
+    else 10000
+
+#
+# Priority classification
+#
+# Used primarily for turn-instruction generation.
+#
+
+assign priorityclassifier =
+    if      highway=motorway       then 30
+    else if highway=motorway_link  then 29
+    else if highway=trunk          then 28
+    else if highway=trunk_link     then 27
+    else if highway=primary        then 26
+    else if highway=primary_link   then 25
+    else if highway=secondary      then 24
+    else if highway=secondary_link then 23
+    else if highway=tertiary       then 22
+    else if highway=tertiary_link  then 21
+    else if highway=unclassified   then 20
+    else if isresidentialorliving  then 6
+    else if highway=service        then 6
+    else 0
+
+#
+# Metadata for navigation instruction generation
+#
+
+assign isroundabout =
+    junction=roundabout
+
+assign isgoodforcars =
+    if greater priorityclassifier 6
+    then true
+    else if or isresidentialorliving highway=service
+    then true
+    else false
+
+assign classifiermask =
+    add          isbadoneway
+    add multiply isgoodoneway  2
+    add multiply isroundabout  4
+    add multiply islinktype    8
+    add multiply isgoodforcars 16
+        multiply motorcycle_access_destination 64
+
+
+---context:node
+
+#
+# Node access
+#
+# Same precedence as way access:
+#
+# motorcycle
+#   -> motor_vehicle
+#      -> vehicle
+#         -> access
+#
+
+assign default_node_access =
+    not barrier=gate|bollard|lift_gate|cycle_barrier
+
+assign general_node_access =
+    switch access=
+        default_node_access
+        access=yes|permissive|designated|destination
+
+assign vehicle_node_access =
+    switch vehicle=
+        general_node_access
+        vehicle=yes|permissive|designated|destination
+
+assign motor_vehicle_node_access =
+    switch motor_vehicle=
+        vehicle_node_access
+        motor_vehicle=yes|permissive|designated|destination
+
+assign motorcycle_node_access =
+    switch motorcycle=
+        motor_vehicle_node_access
+        motorcycle=yes|permissive|designated|destination
+
+#
+# Node cost
+#
+
+assign initialcost =
+    if and avoid_toll barrier=toll_booth
+    then 1000000
+    else if motorcycle_node_access
+    then 0
+    else 1000000

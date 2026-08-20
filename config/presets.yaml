@@ -1,0 +1,27 @@
+version: 1
+
+presets:
+  fast:
+    name: Fast
+    curviness: 0
+    hilliness: 0
+
+  fast-curvy:
+    name: Fast Curvy
+    curviness: 1
+    hilliness: 0
+
+  curvy:
+    name: Curvy
+    curviness: 2
+    hilliness: 0
+
+  very-curvy:
+    name: Very Curvy
+    curviness: 3
+    hilliness: 0
+
+  curvy-hilly:
+    name: Curvy Hilly
+    curviness: 2
+    hilliness: 1

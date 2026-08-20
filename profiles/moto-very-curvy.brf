@@ -12,17 +12,17 @@
 #
 # User-facing profiles are generated from this file and config/presets.yaml.
 #
-# Phase 2:
+# Phase 3:
 #   - motorcycle access
 #   - one-way restrictions
 #   - turn restrictions
 #   - barriers
 #   - road-class suitability
 #   - paved / unpaved handling
+#   - maxspeed-based road-character modifier
+#   - town / urban penalty
 #
 # Not yet implemented:
-#   - maxspeed-based motorcycle-road attractiveness
-#   - urban-context heuristics
 #   - hilliness preference
 #
 
@@ -37,7 +37,7 @@ assign validForCars = true
 #
 # Primary routing parameters
 #
-# These values are replaced by tools/generate_profiles.py.
+# Replaced by tools/generate_profiles.py.
 #
 
 assign curviness = 3
@@ -78,7 +78,7 @@ assign turnInstructionRoundabouts = true
 #
 # Elevation
 #
-# Phase 2 deliberately applies no hilliness preference.
+# Phase 3 deliberately applies no hilliness preference.
 #
 
 assign downhillcost = 0
@@ -156,7 +156,8 @@ assign is_ferry =
     route=ferry
 
 assign is_residential_or_living =
-    or is_residential is_living
+    or is_residential
+       is_living
 
 assign is_link =
     highway=motorway_link|trunk_link|primary_link|secondary_link|tertiary_link
@@ -244,17 +245,17 @@ assign isgoodoneway =
 #
 # Surface classification
 #
-# Missing surface information on normal road classes is intentionally
-# NOT interpreted as unpaved.
+# BRouter lookups normalise concrete:plates and concrete:lanes
+# to surface=concrete.
 #
-    assign surface_is_paved =
-    or surface=paved|asphalt|concrete|paving_stones|sett
-       concrete=plates|lanes
 
-    assign surface_is_unpaved =
+assign surface_is_paved =
+    surface=paved|asphalt|concrete|paving_stones|sett
+
+assign surface_is_unpaved =
     surface=unpaved|gravel|fine_gravel|compacted|ground|dirt|earth|grass|sand|mud|clay
 
-    assign surface_is_bad =
+assign surface_is_bad =
     surface=grass_paver|pebblestone
 
 #
@@ -263,7 +264,8 @@ assign isgoodoneway =
 
 assign track_is_paved =
     and is_track
-        or surface_is_paved tracktype=grade1
+        or surface_is_paved
+           tracktype=grade1
 
 assign track_is_unpaved =
     and is_track
@@ -271,9 +273,6 @@ assign track_is_unpaved =
 
 #
 # Basic supported-road model
-#
-# Path-like highway classes are outside the scope of the standard
-# motorcycle profiles.
 #
 
 assign normal_road_supported =
@@ -293,7 +292,8 @@ assign normal_road_supported =
 
 assign optional_unpaved_supported =
     and allow_unpaved
-        or is_track is_road
+        or is_track
+           is_road
 
 assign road_is_supported =
     or normal_road_supported
@@ -303,9 +303,8 @@ assign road_is_supported =
 #
 # Surface eligibility
 #
-# Clearly unpaved surfaces are blocked by default.
-#
-# Unknown surface remains routable on normal road classes.
+# Missing surface information on ordinary road classes is allowed.
+# Explicitly unpaved surfaces are blocked unless allow_unpaved=true.
 #
 
 assign surface_is_usable =
@@ -341,7 +340,7 @@ assign initialclassifier =
     else classifier_none
 
 #
-# Transition cost
+# Initial transition cost
 #
 
 assign initialcost =
@@ -354,7 +353,7 @@ assign initialcost =
 #
 # Turn cost
 #
-# Curviness does not yet modify this.
+# Deliberately constant in Phase 3.
 #
 
 assign turncost =
@@ -364,8 +363,6 @@ assign turncost =
 
 #
 # Road-class cost model
-#
-# These are Phase-2 calibration values.
 #
 # Curviness 0 = Fast
 # Curviness 1 = Fast Curvy
@@ -457,12 +454,6 @@ assign service_cost =
     switch equal curviness 2 6.00
     8.00
 
-#
-# Optional unpaved-road costs
-#
-# Even when allow_unpaved=true, these roads remain unattractive.
-#
-
 assign track_cost =
     if track_is_paved
     then 6.00
@@ -472,84 +463,267 @@ assign road_cost =
     8.00
 
 #
-# Select road-class cost
+# Select basic road-class cost
 #
 
 assign road_class_cost =
     if is_motorway
     then motorway_cost
-
     else if is_motorway_link
     then motorway_link_cost
-
     else if is_trunk
     then trunk_cost
-
     else if is_trunk_link
     then trunk_link_cost
-
     else if is_primary
     then primary_cost
-
     else if is_primary_link
     then primary_link_cost
-
     else if is_secondary
     then secondary_cost
-
     else if is_secondary_link
     then secondary_link_cost
-
     else if is_tertiary
     then tertiary_cost
-
     else if is_tertiary_link
     then tertiary_link_cost
-
     else if is_unclassified
     then unclassified_cost
-
     else if is_residential
     then residential_cost
-
     else if is_living
     then living_cost
-
     else if is_service
     then service_cost
-
     else if is_track
     then track_cost
-
     else if is_road
     then road_cost
-
     else if is_ferry
     then 5.00
-
     else 10000
 
 #
-# Surface cost modifier
+# Explicit maxspeed conversion
 #
-# Paved and unknown surfaces on ordinary roads receive no extra penalty.
+# OSM lookup values are converted to numeric values before use.
+# The lookup buckets also contain equivalent values such as:
 #
-# Rough-but-paved surfaces receive a small penalty.
+#   maxspeed=50 -> 50, 55, 56, 30 mph
+#   maxspeed=60 -> 60, 65, 35/40 mph
+#   maxspeed=80 -> 80, 85, 50 mph
+#
+# This follows the approach used by BRouter car-vario.brf.
+#
+
+assign maxspeed_forward =
+    switch maxspeed:forward=10    10
+    switch maxspeed:forward=20    20
+    switch maxspeed:forward=30    30
+    switch maxspeed:forward=40    40
+    switch maxspeed:forward=50    50
+    switch maxspeed:forward=60    60
+    switch maxspeed:forward=70    70
+    switch maxspeed:forward=80    80
+    switch maxspeed:forward=90    90
+    switch maxspeed:forward=100  100
+    switch maxspeed:forward=110  110
+    switch maxspeed:forward=120  120
+    switch maxspeed:forward=130  130
+    switch maxspeed:forward=urban 50
+    switch maxspeed:forward=rural 100
+    999
+
+assign maxspeed_backward =
+    switch maxspeed:backward=10    10
+    switch maxspeed:backward=20    20
+    switch maxspeed:backward=30    30
+    switch maxspeed:backward=40    40
+    switch maxspeed:backward=50    50
+    switch maxspeed:backward=60    60
+    switch maxspeed:backward=70    70
+    switch maxspeed:backward=80    80
+    switch maxspeed:backward=90    90
+    switch maxspeed:backward=100  100
+    switch maxspeed:backward=110  110
+    switch maxspeed:backward=120  120
+    switch maxspeed:backward=130  130
+    switch maxspeed:backward=urban 50
+    switch maxspeed:backward=rural 100
+    999
+
+assign directional_maxspeed =
+    if reversedirection=yes
+    then maxspeed_backward
+    else maxspeed_forward
+
+assign maxspeed_explicit =
+    switch maxspeed=10    10
+    switch maxspeed=20    20
+    switch maxspeed=30    30
+    switch maxspeed=40    40
+    switch maxspeed=50    50
+    switch maxspeed=60    60
+    switch maxspeed=70    70
+    switch maxspeed=80    80
+    switch maxspeed=90    90
+    switch maxspeed=100  100
+    switch maxspeed=110  110
+    switch maxspeed=120  120
+    switch maxspeed=130  130
+    switch maxspeed=urban 50
+    switch maxspeed=rural 100
+    directional_maxspeed
+
+#
+# Speed-character modifiers
+#
+# Important:
+#
+#   Low speed is NOT treated as curviness.
+#
+# 30 km/h and below are penalised, particularly for curvy modes,
+# because these values commonly indicate residential or urban roads.
+#
+# 60-80 km/h is treated as the most interesting range for curvy
+# motorcycle routing when the basic road class is also suitable.
+#
+# Missing explicit speed information produces modifier 1.00.
+#
+
+assign speed_modifier_fast =
+    if lesser maxspeed_explicit 20
+    then 1.25
+    else if lesser maxspeed_explicit 40
+    then 1.18
+    else if lesser maxspeed_explicit 60
+    then 1.08
+    else 1.00
+
+assign speed_modifier_fast_curvy =
+    if lesser maxspeed_explicit 20
+    then 1.35
+    else if lesser maxspeed_explicit 40
+    then 1.25
+    else if lesser maxspeed_explicit 60
+    then 1.08
+    else if lesser maxspeed_explicit 90
+    then 1.00
+    else if lesser maxspeed_explicit 100
+    then 1.03
+    else if lesser maxspeed_explicit 999
+    then 1.08
+    else 1.00
+
+assign speed_modifier_curvy =
+    if lesser maxspeed_explicit 20
+    then 1.50
+    else if lesser maxspeed_explicit 40
+    then 1.35
+    else if lesser maxspeed_explicit 60
+    then 1.12
+    else if lesser maxspeed_explicit 80
+    then 1.00
+    else if lesser maxspeed_explicit 90
+    then 1.02
+    else if lesser maxspeed_explicit 100
+    then 1.08
+    else if lesser maxspeed_explicit 999
+    then 1.18
+    else 1.00
+
+assign speed_modifier_very_curvy =
+    if lesser maxspeed_explicit 20
+    then 1.65
+    else if lesser maxspeed_explicit 40
+    then 1.50
+    else if lesser maxspeed_explicit 60
+    then 1.18
+    else if lesser maxspeed_explicit 80
+    then 1.00
+    else if lesser maxspeed_explicit 90
+    then 1.03
+    else if lesser maxspeed_explicit 100
+    then 1.12
+    else if lesser maxspeed_explicit 999
+    then 1.28
+    else 1.00
+
+assign speed_modifier =
+    switch equal curviness 0 speed_modifier_fast
+    switch equal curviness 1 speed_modifier_fast_curvy
+    switch equal curviness 2 speed_modifier_curvy
+    speed_modifier_very_curvy
+
+#
+# Town / urban modifier
+#
+# BRouter provides estimated_town_class 1..6.
+#
+# Curvy profiles penalise increasingly urban surroundings.
+# This is deliberately modest because residential/living/service
+# roads already receive strong road-class penalties.
+#
+
+assign town_modifier_fast =
+    switch estimated_town_class=  1.00
+    switch estimated_town_class=1 1.00
+    switch estimated_town_class=2 1.01
+    switch estimated_town_class=3 1.02
+    switch estimated_town_class=4 1.03
+    switch estimated_town_class=5 1.04
+    switch estimated_town_class=6 1.05
+    1.00
+
+assign town_modifier_fast_curvy =
+    switch estimated_town_class=  1.00
+    switch estimated_town_class=1 1.01
+    switch estimated_town_class=2 1.02
+    switch estimated_town_class=3 1.04
+    switch estimated_town_class=4 1.06
+    switch estimated_town_class=5 1.08
+    switch estimated_town_class=6 1.10
+    1.00
+
+assign town_modifier_curvy =
+    switch estimated_town_class=  1.00
+    switch estimated_town_class=1 1.02
+    switch estimated_town_class=2 1.04
+    switch estimated_town_class=3 1.07
+    switch estimated_town_class=4 1.10
+    switch estimated_town_class=5 1.13
+    switch estimated_town_class=6 1.16
+    1.00
+
+assign town_modifier_very_curvy =
+    switch estimated_town_class=  1.00
+    switch estimated_town_class=1 1.03
+    switch estimated_town_class=2 1.06
+    switch estimated_town_class=3 1.10
+    switch estimated_town_class=4 1.14
+    switch estimated_town_class=5 1.18
+    switch estimated_town_class=6 1.22
+    1.00
+
+assign town_modifier =
+    switch equal curviness 0 town_modifier_fast
+    switch equal curviness 1 town_modifier_fast_curvy
+    switch equal curviness 2 town_modifier_curvy
+    town_modifier_very_curvy
+
+#
+# Surface modifier
 #
 
 assign surface_modifier =
     if surface=cobblestone
     then 1.40
-
     else if surface=paving_stones|sett
     then 1.15
-
     else if surface_is_unpaved
     then 2.00
-
     else if surface_is_bad
     then 2.00
-
     else 1.00
 
 #
@@ -567,38 +741,41 @@ assign motorway_modifier =
 #
 
 assign toll_modifier =
-    if and avoid_toll toll=yes
+    if and avoid_toll
+           toll=yes
     then 10000
     else 1.00
 
 #
-# Final costfactor
+# Final cost model
 #
-# Cost factors must remain positive.
+# Curviness is represented through:
 #
+#   road_class_cost
+#   speed_modifier
+#   town_modifier
+#
+# Hilliness remains independent and is not yet applied.
+#
+
+assign calculated_cost =
+    multiply road_class_cost
+    multiply surface_modifier
+    multiply speed_modifier
+    multiply town_modifier
+             motorway_modifier
 
 assign costfactor =
     if not way_is_usable
     then 10000
-
-    else min 9999
-         multiply road_class_cost
-         multiply surface_modifier
-                  motorway_modifier
-
-#
-# Apply toll avoidance separately so that it remains an independent option.
-#
-
-assign costfactor =
-    if greater toll_modifier 1
+    else if greater toll_modifier 1
     then 10000
-    else costfactor
+    else min 9999 calculated_cost
 
 #
 # Priority classification
 #
-# Used primarily for turn-instruction generation.
+# Used primarily for navigation instruction generation.
 #
 
 assign priorityclassifier =
@@ -629,7 +806,8 @@ assign isroundabout =
 assign isgoodforcars =
     if greater priorityclassifier 6
     then true
-    else if or is_residential_or_living is_service
+    else if or is_residential_or_living
+               is_service
     then true
     else false
 
@@ -647,12 +825,7 @@ assign classifiermask =
 #
 # Node access
 #
-# Same precedence as way access:
-#
-# motorcycle
-#   -> motor_vehicle
-#      -> vehicle
-#         -> access
+# Same precedence as way access.
 #
 
 assign default_node_access =
@@ -683,9 +856,9 @@ assign motorcycle_node_access =
 #
 
 assign initialcost =
-    if and avoid_toll barrier=toll_booth
+    if and avoid_toll
+           barrier=toll_booth
     then 1000000
     else if motorcycle_node_access
     then 0
     else 1000000
-

@@ -3,6 +3,10 @@
 # Source: src/moto-base.brf
 # Preset: fast-curvy
 # Name: Fast Curvy
+# Status: experimental
+# Character: fast-curvy
+# Curviness: 1
+# Hilliness: 0
 #
 
 #

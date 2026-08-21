@@ -3,6 +3,10 @@
 # Source: src/moto-base.brf
 # Preset: curvy-hilly
 # Name: Curvy Hilly
+# Status: experimental
+# Character: curvy
+# Curviness: 2
+# Hilliness: 1
 #
 
 #

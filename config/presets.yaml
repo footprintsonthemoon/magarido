@@ -1,33 +1,44 @@
-version: 1
+version: 2
 
 presets:
   fast:
     name: Fast
+    status: release
+    character: fast
     curviness: 0
     hilliness: 0
 
   fast-curvy:
     name: Fast Curvy
+    status: experimental
+    character: fast-curvy
     curviness: 1
     hilliness: 0
 
   curvy:
     name: Curvy
+    status: release
+    character: curvy
     curviness: 2
     hilliness: 0
 
   very-curvy:
     name: Very Curvy
+    status: release
+    character: very-curvy
     curviness: 3
     hilliness: 0
 
   curvy-hilly:
     name: Curvy Hilly
+    status: experimental
+    character: curvy
     curviness: 2
     hilliness: 1
 
   curvy-very-hilly:
     name: Curvy Very Hilly
+    status: experimental
+    character: curvy
     curviness: 2
     hilliness: 2
-

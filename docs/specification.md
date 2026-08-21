@@ -665,12 +665,13 @@ may legitimately differ from independently optimised segments:
 This distinction is particularly important for motorcycle touring.
 
 
-## 27. Future Scope: Segment-Based Tour Planning
+## 27. Target Vision: Segment-Based Motorcycle Routing
 
-A future planning layer may allow a complete motorcycle tour to consist of
-multiple independently routed segments.
+The long-term target is not a continuously growing collection of global
+routing profiles.
 
-Conceptually:
+Instead, a motorcycle journey should be understood as a sequence of route
+segments:
 
     Start
       |
@@ -692,104 +693,280 @@ Conceptually:
       v
     Destination
 
-A route could, for example, be planned as:
+Each segment represents an independent routing decision.
 
-    Thun
-      ->
-    Interlaken
-      ->
-    Brienz
-      ->
-    Andermatt
+A waypoint therefore has two possible roles:
 
-Each segment could initially use the same routing profile.
+1. it defines a geographic point through which the journey should pass,
+2. it defines the boundary between two routing intentions.
 
-This would allow riders to influence the broad geographic structure of a tour
-without introducing route-specific logic into the BRouter profile.
+This allows routing behaviour to change naturally during a journey without
+requiring increasingly specialised global profiles.
 
 
-## 28. Future Scope: Per-Segment Routing Preferences
+## 28. Routing Character
 
-A more advanced planning layer may allow different profiles for individual
-segments.
+The primary routing character describes the fundamental trade-off between
+travel efficiency and motorcycle-road attractiveness.
+
+The current routing characters are:
+
+    Fast
+    Curvy
+    Very Curvy
+
+These should remain few in number and clearly distinguishable.
+
+Conceptually:
+
+    Fast
+        travel efficiency dominates
+
+    Curvy
+        moderate willingness to trade efficiency
+        for motorcycle-oriented road character
+
+    Very Curvy
+        stronger willingness to trade efficiency
+        for motorcycle-oriented road character
+
+A routing character applies to one route segment rather than necessarily to
+the complete journey.
+
+
+## 29. Routing Preferences and Constraints
+
+Additional routing intentions should not automatically become separate
+profiles.
+
+Examples include:
+
+    Avoid Motorways
+    Avoid Toll Roads
+    Avoid Cities
+    Prefer Hills
+
+These concepts are different from the primary routing character.
+
+Where technically feasible, they should therefore be modelled as independent
+preferences or constraints.
+
+Conceptually:
+
+    routing intention
+        =
+    routing character
+        +
+    optional preferences
+        +
+    optional constraints
+
+For example:
+
+    character: Curvy
+
+    preferences:
+        Prefer Hills
+
+    constraints:
+        Avoid Cities
+        Avoid Motorways
+
+This separation avoids a combinatorial explosion of profiles such as:
+
+    curvy-hilly
+    curvy-hilly-no-motorway
+    curvy-hilly-no-motorway-avoid-cities
+    very-curvy-hilly-no-motorway
+    ...
+
+The internal implementation may initially require generated BRouter profiles
+for technical reasons.
+
+The conceptual model should nevertheless keep these dimensions separate.
+
+
+## 30. Segment-Specific Routing Intentions
+
+A future planning layer should allow each segment to use its own routing
+intention.
 
 Example:
 
-    Thun -> Interlaken
-        Fast
+    Biel
+      |
+      | Fast
+      v
+    Bern
+      |
+      | Curvy + Avoid Cities
+      v
+    Thun
+      |
+      | Very Curvy
+      v
+    Brienz
+      |
+      | Curvy
+      v
+    Andermatt
 
-    Interlaken -> Brienz
-        Curvy
-
-    Brienz -> Andermatt
-        Very Curvy
-
-This separates two user decisions:
-
-1. Where should the tour approximately go?
-2. What routing character should each part of the tour have?
-
-Such functionality belongs to a planning layer above BRouter.
-
-
-## 29. Future Scope: Route Alternatives
-
-A future planning tool may request multiple alternatives for individual
-segments.
-
-Instead of presenting only one globally optimal route, the user could compare
-alternatives such as:
-
-- Fast
-- Curvy
-- Very Curvy
-- alternative geographic corridors
-
-The user could then select preferred segments and combine them into a complete
-tour.
-
-This may be particularly useful where lakes, mountains, valleys or other
-geographic constraints create several distinct corridors.
-
-
-## 30. Future Scope: Planning Tool
-
-A future companion tool could provide route planning independently of the
-BRouter profile implementation.
-
-A possible conceptual route definition could be:
-
-    route:
-      - Thun
-      - Interlaken
-      - Brienz
-      - Andermatt
-
-    profile: moto-curvy
-
-A more advanced definition could be:
+A structured representation could conceptually look like:
 
     segments:
-      - from: Thun
-        to: Interlaken
-        profile: moto-fast
 
-      - from: Interlaken
+      - from: Biel
+        to: Bern
+        character: fast
+
+      - from: Bern
+        to: Thun
+        character: curvy
+        avoid:
+          - cities
+
+      - from: Thun
         to: Brienz
-        profile: moto-curvy
+        character: very-curvy
+        avoid:
+          - motorways
 
       - from: Brienz
         to: Andermatt
-        profile: moto-very-curvy
+        character: curvy
 
-Possible outputs include:
+The exact data format is not part of the initial release specification.
 
-- GPX
-- GeoJSON
-- routes suitable for import into OsmAnd
 
-This functionality is explicitly outside the scope of the initial routing
-profile release.
+## 30.1 Why Segment-Based Routing Matters
+
+Current calibration has demonstrated that meaningful routing choices are often
+local rather than global.
+
+A long journey may contain:
+
+- sections where motorway travel is clearly appropriate,
+- sections with several attractive motorcycle-road alternatives,
+- sections where topography provides effectively one route,
+- urban areas that a rider may prefer to bypass,
+- scenic regions where additional travel time is deliberately acceptable.
+
+Applying one global routing preference to the entire journey cannot express
+these intentions precisely.
+
+Segment-based routing allows the rider to decide where a particular routing
+behaviour matters.
+
+
+## 30.2 Waypoints as Routing Boundaries
+
+Waypoints should not merely force the routing engine through arbitrary
+coordinates.
+
+In the future planning model they can also represent intentional transitions
+between routing behaviours.
+
+For example:
+
+    A -> B    Fast
+    B -> C    Curvy
+    C -> D    Very Curvy
+
+This also provides a general solution to observations made during calibration.
+
+If a locally attractive alternative is not part of the globally optimal route,
+the user can intentionally define a waypoint or segment boundary and request
+the desired routing character for that section.
+
+This preserves the general routing model without introducing road-specific
+exceptions.
+
+
+## 30.3 Alternative Routes per Segment
+
+A future planner may calculate and present several alternatives for an
+individual segment.
+
+For example:
+
+    Interlaken -> Brienz
+
+        Fast
+            A8 corridor
+
+        Curvy
+            northern shore
+
+        Very Curvy
+            alternative motorcycle-oriented route,
+            if a meaningful additional option exists
+
+The user may then select the preferred alternative before continuing with the
+next segment.
+
+This combines automated routing with explicit rider intent.
+
+
+## 30.4 Separation of Responsibilities
+
+The target architecture therefore consists conceptually of three layers:
+
+    TOUR PLANNING
+
+        journey
+        waypoints
+        segments
+        alternatives
+        per-segment intentions
+
+                |
+                v
+
+    ROUTING INTENTION
+
+        Fast / Curvy / Very Curvy
+        preferences
+        constraints
+
+                |
+                v
+
+    ROUTING ENGINE
+
+        BRouter
+        BRF cost model
+        OpenStreetMap data
+
+The BRouter cost model remains responsible for finding a good route between
+two defined points.
+
+The planning layer is responsible for deciding how multiple such routing
+decisions form a complete motorcycle journey.
+
+
+## 30.5 Initial Release Boundary
+
+The segment-based planning model is a target architecture, not a requirement
+for the initial release.
+
+The initial release remains intentionally limited to:
+
+    moto-fast
+    moto-curvy
+    moto-very-curvy
+
+used with BRouter and OsmAnd.
+
+This provides a useful standalone product while establishing the routing
+foundation for a future segment-based planner.
+
+The initial implementation should, however, avoid architectural decisions that
+would unnecessarily prevent later separation of:
+
+- routing character,
+- routing preferences,
+- routing constraints,
+- segment planning.
 
 
 ## 31. Future Scope: Better Motorcycle-Road Characterisation

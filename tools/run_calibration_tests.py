@@ -74,6 +74,45 @@ ROUTES = [
         end=(7.0725, 46.1024),
         purpose="Valley vs surrounding terrain",
     ),
+    TestRoute(
+    name="Thun -> Interlaken",
+    start=(7.6280, 46.7580),
+    end=(7.8632, 46.6863),
+    purpose="Diagnostic: western section of Thun-Andermatt",
+),
+
+TestRoute(
+    name="Interlaken -> Brienz",
+    start=(7.8632, 46.6863),
+    end=(8.0384, 46.7545),
+    purpose="Diagnostic: north-shore vs A8 corridor",
+),
+
+TestRoute(
+    name="Brienz -> Andermatt",
+    start=(8.0384, 46.7545),
+    end=(8.5947, 46.6356),
+    purpose="Diagnostic: eastern section of Thun-Andermatt",
+),
+TestRoute(
+    name="Biel/Bienne -> Rotkreuz",
+    start=(7.2468, 47.1368),
+    end=(8.4310, 47.1420),
+    purpose="High-choice: motorway vs Mittelland secondary-road corridors",
+),
+
+TestRoute(
+    name="Lausanne -> Thun",
+    start=(6.6323, 46.5197),
+    end=(7.6280, 46.7580),
+    purpose="High-choice: long-distance motorway vs rural and pre-alpine corridors",
+),
+TestRoute(
+    name="Fribourg -> Altdorf",
+    start=(7.1513, 46.8065),
+    end=(8.6444, 46.8804),
+    purpose="High-choice: motorway, Mittelland, pre-alpine and mountain alternatives",
+),
 ]
 
 

@@ -13,7 +13,11 @@ PROFILES = [
     "moto-curvy",
     "moto-very-curvy",
     "moto-curvy-hilly",
+    "moto-curvy-very-hilly",
 ]
+
+
+
 
 ROUTE = "7.2468,47.1368|6.9293,46.9896"
 

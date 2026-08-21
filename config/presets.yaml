@@ -25,3 +25,9 @@ presets:
     name: Curvy Hilly
     curviness: 2
     hilliness: 1
+
+  curvy-very-hilly:
+    name: Curvy Very Hilly
+    curviness: 2
+    hilliness: 2
+

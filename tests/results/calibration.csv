@@ -1,0 +1,31 @@
+route,purpose,profile,distance_km,time_min,ascent_m,cost
+Biel/Bienne -> Neuchatel,Short mixed-route baseline,moto-fast,32.835,43.78,61,51963
+Biel/Bienne -> Neuchatel,Short mixed-route baseline,moto-fast-curvy,32.835,43.78,61,57805
+Biel/Bienne -> Neuchatel,Short mixed-route baseline,moto-curvy,32.748,43.67,68,70042
+Biel/Bienne -> Neuchatel,Short mixed-route baseline,moto-very-curvy,39.131,52.17,628,73772
+Biel/Bienne -> Neuchatel,Short mixed-route baseline,moto-curvy-hilly,39.131,52.17,628,76467
+Biel/Bienne -> Neuchatel,Short mixed-route baseline,moto-curvy-very-hilly,39.131,52.17,628,79619
+Bern -> Luzern,Fast vs secondary-road alternatives,moto-fast,110.482,147.32,416,130684
+Bern -> Luzern,Fast vs secondary-road alternatives,moto-fast-curvy,110.665,147.55,416,159182
+Bern -> Luzern,Fast vs secondary-road alternatives,moto-curvy,88.583,118.12,873,179559
+Bern -> Luzern,Fast vs secondary-road alternatives,moto-very-curvy,93.285,124.38,1445,182917
+Bern -> Luzern,Fast vs secondary-road alternatives,moto-curvy-hilly,89.477,119.30,921,190049
+Bern -> Luzern,Fast vs secondary-road alternatives,moto-curvy-very-hilly,91.652,122.20,1455,195157
+Thun -> Andermatt,Mountain and hilliness behaviour,moto-fast,119.534,159.38,2673,187795
+Thun -> Andermatt,Mountain and hilliness behaviour,moto-fast-curvy,119.534,159.38,2673,199057
+Thun -> Andermatt,Mountain and hilliness behaviour,moto-curvy,114.211,152.28,2674,217855
+Thun -> Andermatt,Mountain and hilliness behaviour,moto-very-curvy,114.321,152.43,2675,245678
+Thun -> Andermatt,Mountain and hilliness behaviour,moto-curvy-hilly,114.211,152.28,2674,227688
+Thun -> Andermatt,Mountain and hilliness behaviour,moto-curvy-very-hilly,114.211,152.28,2674,236208
+Zuerich -> Davos,Long alpine routing,moto-fast,148.105,197.47,1607,186201
+Zuerich -> Davos,Long alpine routing,moto-fast-curvy,148.105,197.47,1607,215129
+Zuerich -> Davos,Long alpine routing,moto-curvy,145.276,193.70,1802,274126
+Zuerich -> Davos,Long alpine routing,moto-very-curvy,154.554,206.07,1896,318270
+Zuerich -> Davos,Long alpine routing,moto-curvy-hilly,145.339,193.78,1818,294274
+Zuerich -> Davos,Long alpine routing,moto-curvy-very-hilly,145.339,193.78,1818,309188
+Aigle -> Martigny,Valley vs surrounding terrain,moto-fast,29.108,38.82,124,37800
+Aigle -> Martigny,Valley vs surrounding terrain,moto-fast-curvy,29.108,38.82,124,42642
+Aigle -> Martigny,Valley vs surrounding terrain,moto-curvy,27.434,36.58,144,52801
+Aigle -> Martigny,Valley vs surrounding terrain,moto-very-curvy,28.815,38.42,157,58826
+Aigle -> Martigny,Valley vs surrounding terrain,moto-curvy-hilly,27.434,36.58,144,57472
+Aigle -> Martigny,Valley vs surrounding terrain,moto-curvy-very-hilly,27.434,36.58,144,61247

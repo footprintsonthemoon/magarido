@@ -1,3 +1,10 @@
+# GENERATED FILE - DO NOT EDIT
+#
+# Source: src/moto-base.brf
+# Preset: curvy-very-hilly
+# Name: Curvy Very Hilly
+#
+
 #
 # BRouter Motorcycle Profiles
 #
@@ -25,13 +32,13 @@ assign validForCars = true
 # Primary routing parameters
 #
 
-assign curviness = 0
+assign curviness = 2
 # 0 = fast
 # 1 = fast-curvy
 # 2 = curvy
 # 3 = very-curvy
 
-assign hilliness = 0
+assign hilliness = 2
 # 0 = neutral
 # 1 = hilly
 # 2 = very-hilly

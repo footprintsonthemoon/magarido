@@ -2,1146 +2,852 @@
 
 ## 1. Purpose
 
-This document defines how the functional requirements in `specification.md` are mapped to BRouter routing concepts, OpenStreetMap attributes, and routing costs.
+This document describes the routing model used by the BRouter Motorcycle
+Profiles project.
 
-It is the technical design for the canonical motorcycle routing profile.
+It explains how the desired routing behaviour defined in
+`docs/specification.md` is translated into BRouter cost functions.
 
-The document intentionally separates:
+The routing model is intentionally generic. It must not contain rules that
+exist solely to produce a desired result on a particular test route.
 
-* legal accessibility
-* basic road suitability
-* motorcycle road attractiveness
-* curviness
-* hilliness
-* optional routing preferences
+Detailed calibration procedures, test routes and profile evaluation are
+documented separately in `docs/testing.md`.
 
-A road must first be legally and technically usable before preferences such as curviness or hilliness influence its attractiveness.
 
----
+## 2. Model Overview
 
-## 2. Design Model
+BRouter searches for the route with the lowest accumulated routing cost.
 
-The routing decision is conceptually composed of several layers:
+The motorcycle model therefore assigns a cost to each usable road segment.
 
-```text
-OSM way / node
-      │
-      ▼
-Access validation
-      │
-      ▼
-Basic road suitability
-      │
-      ▼
-Road-class cost
-      │
-      +─────────────┐
-      │             │
-      ▼             ▼
-Curviness        Hilliness
-      │             │
-      └──────┬──────┘
-             │
-             ▼
-Secondary modifiers
-             │
-             ▼
-Final BRouter cost
-```
+Conceptually:
 
-The layers must remain logically separable.
+    segment cost
+        =
+        travel-time cost
+        x road-character modifier
+        x settlement modifier
+        x optional routing modifiers
+        x topographical modifier
 
-In particular:
+The actual BRouter implementation additionally considers:
 
-```text
-curviness != hilliness
-curviness != road size
-curviness != low speed
-curviness != turn count
-```
+- access restrictions
+- one-way restrictions
+- turn restrictions
+- barriers
+- surface
+- elevation
+- turn costs
+- ferry handling
 
----
+The important design principle is that routing preferences are expressed as
+relative costs.
 
-## 3. BRouter Profile Structure
+A road is not selected because it belongs to a predefined route. It is selected
+because its characteristics result in a lower total cost for the chosen
+profile.
 
-The canonical profile should use the standard BRouter contexts:
 
-```text
----context:global
-```
+## 3. Model Dimensions
 
-for configuration and global routing parameters,
+The current model contains two primary preference dimensions:
 
-```text
----context:way
-```
+    curviness
+    hilliness
 
-for road properties and way costs,
+They are intentionally represented separately.
 
-and:
+`curviness` controls the preference for motorcycle-oriented road character.
 
-```text
----context:node
-```
+`hilliness` controls the preference for topographical variation.
 
-for barriers and other node-specific restrictions.
+The development model currently supports:
 
-The canonical implementation is:
+    curviness = 0 .. 3
+    hilliness = 0 .. 2
 
-```text
-src/moto-base.brf
-```
+Not every combination needs to become a user-facing profile.
 
-Generated presets are derived from this source.
 
----
+## 4. Route Eligibility
 
-## 4. Global Parameters
+Before preference costs are considered, a road must be usable by a motorcycle.
 
-The primary project parameters are:
+The model evaluates:
 
-```text
-assign curviness = 0
-assign hilliness = 0
-```
+- `access`
+- `vehicle`
+- `motor_vehicle`
+- `motorcycle`
+- one-way restrictions
+- road type
+- surface
+- barriers
 
-with:
+Explicit motorcycle access information has priority over more general access
+information.
 
-```text
-curviness
-0 = fast
-1 = fast-curvy
-2 = curvy
-3 = very-curvy
 
-hilliness
-0 = neutral
-1 = hilly
-2 = very-hilly
-```
+## 5. Supported Road Types
 
-Additional independent parameters may include:
+The normal paved-road model supports:
 
-```text
-avoid_motorways
-avoid_toll
-allow_unpaved
-allow_ferries
-avoid_urban
-```
+- motorway
+- motorway_link
+- trunk
+- trunk_link
+- primary
+- primary_link
+- secondary
+- secondary_link
+- tertiary
+- tertiary_link
+- unclassified
+- residential
+- living_street
+- service
 
-The initial implementation should keep the number of user-facing parameters small.
+Ferries can be enabled.
 
----
+Tracks and generic roads can optionally be enabled when unpaved routing is
+allowed.
 
-## 5. Routing Cost Architecture
+Paths, footways and similar infrastructure are not part of normal motorcycle
+routing.
 
-The routing model should conceptually derive:
 
-```text
-final_cost =
-    base_road_cost
-  + access_effect
-  + surface_effect
-  + speed_effect
-  + urban_effect
-  + optional_effects
-```
+## 6. Surface Handling
 
-Curviness changes selected components of this calculation.
+The initial release targets paved-road motorcycle touring.
 
-Hilliness is applied separately through BRouter's elevation-aware routing mechanism.
+Paved surfaces include typical values such as:
 
-The implementation does not need to reproduce this formula literally. It should preserve the conceptual separation.
+- asphalt
+- paved
+- concrete
+- paving stones
+- sett
 
----
+Unpaved and potentially unsuitable surfaces include values such as:
 
-## 6. Access Model
+- gravel
+- fine gravel
+- ground
+- dirt
+- earth
+- grass
+- sand
+- mud
 
-### 6.1 Principle
+Unpaved roads are disabled by default.
 
-Legal accessibility has priority over route attractiveness.
+When explicitly enabled, they remain subject to lower assumed speeds and
+appropriate routing costs.
 
-No amount of curviness or hilliness may compensate for a road that is not legally accessible to motorcycles.
 
-### 6.2 Access hierarchy
+## 7. Time-Aware Base Cost
 
-The implementation should evaluate motorcycle-related access using the following conceptual precedence:
+Earlier iterations of the model relied too strongly on road classification.
 
-```text
-motorcycle
-    ↓
-motor_vehicle
-    ↓
-vehicle
-    ↓
-access
-    ↓
-implicit road-class default
-```
+The current model instead uses expected travel time as its primary base cost.
 
-A more specific tag should override a more general one where BRouter and the available OSM data allow this distinction.
+This is important because one kilometre of motorway and one kilometre of
+village road do not represent equivalent travel effort.
 
-The implementation should not assume that `motorcar=*` and `motorcycle=*` are equivalent.
 
-### 6.3 Positive access values
+## 8. Explicit Speed Information
 
-Values normally indicating usable access include, where appropriate:
+Where usable OpenStreetMap speed information exists, the model evaluates:
 
-```text
-yes
-permissive
-designated
-destination
-```
+- `maxspeed`
+- `maxspeed:forward`
+- `maxspeed:backward`
 
-`destination` may remain routable but should be classified separately where useful.
+Directional speed limits are considered according to travel direction.
 
-### 6.4 Restricted access
+Common numeric values are mapped explicitly.
 
-Values representing prohibited or unsuitable motorcycle access must prevent normal routing.
+Selected symbolic values such as `urban` and `rural` are also interpreted.
 
-Typical cases include:
+If no usable explicit value is available, the model falls back to an implicit
+speed estimate.
 
-```text
-no
-private
-```
 
-The implementation must be conservative when conflicting access tags are encountered.
+## 9. Implicit Speed Model
 
-### 6.5 Reference implementation
+Implicit speed represents a reasonable expected motorcycle travel speed based
+primarily on road classification.
 
-Access handling should be based primarily on the current BRouter car profile structure, extended with explicit motorcycle handling.
+The current model assumes approximately:
 
-The experimental BRouter moped profile may be used as a reference for motorcycle-specific tags, but must not be copied as the safety baseline.
+    motorway             120 km/h
+    motorway_link         80 km/h
+    trunk                100 km/h
+    trunk_link            70 km/h
+    primary               90 km/h
+    primary_link          70 km/h
+    secondary             80 km/h
+    secondary_link        65 km/h
+    tertiary              70 km/h
+    tertiary_link         60 km/h
+    unclassified          60 km/h
+    residential           45 km/h
+    living_street         20 km/h
+    service               30 km/h
+    ferry                 10 km/h
+    track                 20 km/h
+    generic road          30 km/h
 
----
+These values are routing assumptions, not statements about legal speed limits.
 
-## 7. One-Way Routing
+They may be recalibrated if broader testing demonstrates systematic problems.
 
-Motorcycle routing must respect normal one-way restrictions.
 
-Relevant OSM information includes:
+## 10. Surface and Track Speed Limits
 
-```text
-oneway=yes
-oneway=true
-oneway=1
-oneway=-1
-junction=roundabout
-```
+Surface characteristics can further reduce expected speed.
 
-The routing model must correctly account for BRouter's `reversedirection` state.
+For example, paving stones, cobblestones, gravel and tracks should not inherit
+the full implicit speed of their road class.
 
-Violation of a one-way restriction must make the direction unusable rather than merely unattractive.
+The effective routing speed is therefore based on the most restrictive
+applicable speed estimate.
 
----
 
-## 8. Node Restrictions and Barriers
+## 11. Effective Speed
 
-The node context must handle barriers independently of normal way costs.
+Conceptually:
 
-Relevant barriers include at least:
+    effective_speed =
+        minimum(
+            explicit_or_implicit_speed,
+            implicit_road_speed,
+            surface_speed,
+            track_speed
+        )
 
-```text
-gate
-bollard
-lift_gate
-cycle_barrier
-```
+This prevents a high road-class speed from overriding a restrictive surface or
+track condition.
 
-A barrier must only be considered passable if applicable access information permits motorcycle passage.
 
-Toll booths should be considered separately from physical access restrictions.
+## 12. Time Cost
 
----
+The effective speed is converted into a relative cost.
 
-## 9. Base Road Classification
+The current model uses 120 km/h as the reference:
 
-The initial road model uses these principal OSM highway classes:
+    time_cost = 120 / effective_speed
 
-```text
-motorway
-motorway_link
+with a minimum cost of 1.0.
 
-trunk
-trunk_link
+Examples:
 
-primary
-primary_link
+    120 km/h -> 1.00
+    100 km/h -> 1.20
+     80 km/h -> 1.50
+     60 km/h -> 2.00
+     50 km/h -> 2.40
+     30 km/h -> 4.00
 
-secondary
-secondary_link
+This gives Fast routing a natural preference for roads that provide substantial
+travel-time advantages.
 
-tertiary
-tertiary_link
 
-unclassified
+## 13. Curviness Model
 
-residential
-living_street
+Curviness modifies the time-aware base cost according to road character.
 
-service
+The objective is not to identify geometric curves directly.
 
-track
-road
-path
-```
+Instead, the model currently uses road classification as a proxy for the type
+of road that is likely to be attractive for motorcycle touring.
 
-Additional classes may be added when justified by testing.
+This is deliberately an approximation.
 
----
+Future versions may use additional information when it can be shown to improve
+the model reliably.
 
-## 10. Road-Class Cost Matrix
 
-The following matrix is the initial calibration model.
+## 14. Curviness Levels
 
-It is not considered final behaviour until validated by route tests.
+The internal model currently supports four levels:
 
-| OSM highway           |    Fast | Fast Curvy |   Curvy | Very Curvy |
-| --------------------- | ------: | ---------: | ------: | ---------: |
-| motorway              |    1.00 |       1.30 |    3.00 |       6.00 |
-| trunk                 |    1.05 |       1.20 |    2.00 |       3.50 |
-| primary               |    1.10 |       1.05 |    1.35 |       1.80 |
-| secondary             |    1.20 |       1.05 |    1.00 |       1.05 |
-| tertiary              |    1.35 |       1.10 |    1.00 |       1.00 |
-| unclassified          |    1.70 |       1.30 |    1.10 |       1.05 |
-| residential           |    2.50 |       2.50 |    3.00 |       4.00 |
-| living_street         |    4.00 |       4.00 |    5.00 |       6.00 |
-| service               |    5.00 |       5.00 |    6.00 |       8.00 |
-| unsuitable track/path | blocked |    blocked | blocked |    blocked |
+    0 = Fast
+    1 = Fast Curvy
+    2 = Curvy
+    3 = Very Curvy
 
-The most important characteristic of this matrix is:
+These levels are useful for calibration even when not all levels are eventually
+released to users.
 
-> Increasing curviness does not automatically make progressively smaller roads more attractive.
 
-Residential and service roads become less attractive as curviness increases.
+## 15. Fast
 
----
+At curviness level 0, road-character modifiers remain close to neutral.
 
-## 11. Curviness Model
+Travel time therefore dominates the routing decision.
 
-### 11.1 Limitation
+Motorways, trunk roads and major roads can be selected when they provide a
+meaningful travel-time advantage.
 
-The BRouter profile should not assume access to a direct geometric road-curvature metric.
+Local roads remain less attractive because their expected travel speeds and
+road-character costs are higher.
 
-Curviness must therefore be approximated through road characteristics available to the routing profile.
 
-The first implementation uses a combination of:
+## 16. Fast Curvy
 
-```text
-road class
-speed information
-urban context
-surface
-link-road status
-```
+Curviness level 1 introduces a limited preference for secondary and tertiary
+roads while retaining a strong travel-time orientation.
 
-The model may later incorporate additional BRouter or OSM information if testing demonstrates a meaningful improvement.
+The intended behaviour is:
 
-### 11.2 Motorcycle road attractiveness
+    fast travel
+        +
+    preference for attractive alternatives
+        when the time penalty is moderate
 
-The model targets roads that are likely to function as enjoyable motorcycle through-roads.
+Calibration has shown that this level often produces the same route as Fast.
 
-The preferred range for curvy routing is expected to centre around:
+It therefore remains useful as an internal calibration level, but its
+user-facing value is currently considered limited.
 
-```text
-secondary
-tertiary
-suitable unclassified
-```
 
-rather than:
+## 17. Curvy
 
-```text
-residential
-living_street
-service
-track
-```
+Curviness level 2 applies a stronger preference for suitable secondary and
+tertiary roads.
 
-### 11.3 Fast
+It accepts moderate additional travel time when the resulting route has a more
+appropriate motorcycle-touring character.
 
-`curviness = 0`
+Motorways and other high-speed corridors receive a higher relative cost than
+in Fast.
 
-Optimises primarily for efficient road travel.
+This does not prohibit motorways.
 
-Expected characteristics:
+A motorway can still be selected when the alternative is sufficiently slower
+or otherwise unattractive.
 
-```text
-motorway          highly attractive
-trunk             attractive
-primary           attractive
-secondary         acceptable
-tertiary          acceptable
-small local road  unattractive
-```
 
-### 11.4 Fast Curvy
+## 18. Very Curvy
 
-`curviness = 1`
+Curviness level 3 increases the willingness to trade travel efficiency for
+road character.
 
-Represents the transition between efficient routing and motorcycle-oriented touring.
+Compared with Curvy it:
 
-It should:
+- penalises motorway and trunk routing more strongly
+- gives suitable secondary and tertiary roads greater relative importance
+- accepts larger deviations when the road network provides meaningful
+  alternatives
 
-* retain reasonable travel efficiency
-* prefer good secondary roads where the detour is modest
-* retain major roads where they provide a substantial advantage
-* reduce unnecessary motorway dependence
+Testing has demonstrated reproducible differences between Curvy and Very Curvy,
+including cases where they select substantially different corridors.
 
-### 11.5 Curvy
+Very Curvy therefore remains a current release candidate.
 
-`curviness = 2`
 
-Should:
+## 19. Current Road-Character Factors
 
-* favour secondary and tertiary roads
-* allow suitable unclassified roads
-* significantly discourage motorways
-* discourage major high-speed roads
-* strongly avoid residential routing
+The current calibration uses approximately the following factors:
 
-### 11.6 Very Curvy
+| Road class | Fast | Fast Curvy | Curvy | Very Curvy |
+|---|---:|---:|---:|---:|
+| motorway | 1.00 | 1.25 | 1.75 | 2.60 |
+| motorway_link | 1.00 | 1.25 | 1.70 | 2.50 |
+| trunk | 1.00 | 1.15 | 1.35 | 1.70 |
+| trunk_link | 1.00 | 1.15 | 1.30 | 1.60 |
+| primary | 1.00 | 1.03 | 1.12 | 1.28 |
+| primary_link | 1.00 | 1.03 | 1.12 | 1.28 |
+| secondary | 1.00 | 0.90 | 0.90 | 0.88 |
+| secondary_link | 1.00 | 0.94 | 0.94 | 0.94 |
+| tertiary | 1.00 | 0.88 | 0.88 | 0.84 |
+| tertiary_link | 1.00 | 0.92 | 0.93 | 0.90 |
+| unclassified | 1.10 | 0.98 | 0.96 | 0.94 |
 
-`curviness = 3`
+These values are implementation parameters rather than product requirements.
 
-Should:
+They may change during future calibration without changing the conceptual
+routing model.
 
-* strongly favour suitable motorcycle-oriented secondary and tertiary roads
-* accept larger but still bounded detours
-* make motorways highly unattractive
-* avoid artificial complexity through settlements
-* avoid local access roads used solely to increase route variation
 
----
+## 20. Local Roads
 
-## 12. Speed Model
+A central design rule is:
 
-### 12.1 Purpose
+    more curvy != smaller road
 
-Speed information is a secondary indicator of road character.
+Residential, living and service roads therefore do not become more attractive
+as curviness increases.
 
-It must not override basic road classification.
+The current model deliberately increases their cost:
 
-### 12.2 Sources
+| Road class | Fast | Fast Curvy | Curvy | Very Curvy |
+|---|---:|---:|---:|---:|
+| residential | 1.30 | 1.35 | 1.50 | 1.75 |
+| living_street | 1.80 | 1.90 | 2.20 | 2.60 |
+| service | 2.00 | 2.10 | 2.40 | 2.80 |
 
-Where available, the model may use:
+This reduces the risk of routes that leave a sensible through-road merely to
+zig-zag through residential areas.
 
-```text
-maxspeed
-maxspeed:forward
-maxspeed:backward
-```
 
-BRouter profile logic may additionally provide implicit speed assumptions based on highway type.
+## 21. Settlement Handling
 
-### 12.3 Interpretation
+Roads through settlements require special care.
 
-The initial conceptual model is:
+An attractive through-road crossing a village should not automatically become
+unattractive merely because it passes through a settlement.
 
-| Speed       | Motorcycle interpretation                                 |
-| ----------- | --------------------------------------------------------- |
-| >= 100 km/h | efficient, potentially less attractive for high curviness |
-| 80–90 km/h  | generally good through-road                               |
-| 60–80 km/h  | potentially attractive motorcycle road                    |
-| 40–50 km/h  | context-dependent                                         |
-| <= 30 km/h  | likely urban/local; no curviness bonus                    |
+At the same time, routing through dense urban areas should carry some
+additional cost.
 
-Speed must always be interpreted together with road class.
+The model therefore applies a moderate settlement modifier based on
+BRouter's estimated town classification.
 
-For example:
 
-```text
-secondary + 70 km/h
-```
+## 22. Town Modifiers
 
-may receive favourable treatment.
+The settlement modifier is intentionally weaker than the penalties applied
+directly to residential, living and service roads.
 
-But:
+This separates two concepts:
 
-```text
-residential + 30 km/h
-```
+    through-road passing through a settlement
 
-must not become attractive for curvy routing.
+from:
 
----
+    local residential routing
 
-## 13. Urban Model
+Calibration showed that strongly increasing the town penalty did not provide a
+useful improvement and could suppress otherwise legitimate motorcycle roads.
 
-Urban routing is an independent negative modifier.
+The current model therefore uses relatively conservative town modifiers.
 
-The model should avoid using curviness as a reason to enter or zig-zag through settlements.
 
-Potential indicators include:
+## 23. Motorways
 
-```text
-residential road classes
-living_street
-service
-low maxspeed
-BRouter town estimation where available
-```
+Motorways are allowed by default.
 
-The initial implementation may use BRouter's estimated town classification if it proves stable and useful in testing.
+This is important because Fast must be able to produce genuinely efficient
+routes.
 
-Increasing `curviness` must never decrease the urban penalty for residential streets.
+Curvy and Very Curvy do not prohibit motorways either.
 
----
+Instead, motorway use becomes progressively more expensive through the
+road-character model.
 
-## 14. Link Roads
+This allows a profile to make a contextual trade-off:
 
-Roads such as:
+    motorway time advantage
 
-```text
-motorway_link
-trunk_link
-primary_link
-secondary_link
-tertiary_link
-```
+versus:
 
-serve a functional routing purpose.
+    attractiveness of an alternative road
 
-They should generally inherit the character of their associated road class, with a small additional penalty if necessary to avoid unnecessary interchange routing.
 
-They must not become a mechanism for generating artificial route complexity.
+## 24. Explicit Motorway Avoidance
 
----
+The independent option:
 
-## 15. Surface Model
+    avoid_motorways
 
-### 15.1 Default behaviour
+can make motorway and motorway-link segments effectively unusable.
 
-The initial project targets paved-road motorcycle touring.
+This option is separate from curviness.
 
-Normal profiles should therefore favour:
+A user who explicitly requests motorway avoidance is expressing a hard
+preference rather than merely requesting a more curvy route.
 
-```text
-asphalt
-paved
-concrete
-```
 
-Other clearly road-compatible paved surfaces may be accepted after validation.
+## 25. Toll Roads
 
-### 15.2 Unpaved surfaces
+Toll handling is also independent from curviness.
 
-The default should strongly discourage or prohibit unsuitable unpaved surfaces.
+When:
 
-Relevant information may include:
+    avoid_toll = true
 
-```text
-surface
-tracktype
-smoothness
-```
+toll roads receive a prohibitive routing cost.
 
-### 15.3 Missing surface information
+This keeps economic or access preferences separate from road-character
+preferences.
 
-Missing `surface=*` must not automatically mean unpaved.
 
-Road class should be used as part of the inference.
+## 26. Hilliness Model
 
-A normal `secondary` without a surface tag should remain routable.
+Hilliness is represented independently from curviness.
 
-A `track` without sufficient surface information should be treated conservatively.
+The current levels are:
 
----
+    0 = neutral
+    1 = hilly
+    2 = very hilly
 
-## 16. Track and Path Handling
+The model attempts to make topographically varied routes relatively more
+attractive without requiring a specific mountain or road.
 
-The standard profiles are not adventure or off-road profiles.
 
-Therefore:
+## 27. Relative Hilliness
 
-```text
-track
-path
-bridleway
-```
+Hilliness is implemented as a relative preference rather than an arbitrary
+fixed additive cost.
 
-should normally be excluded or assigned effectively prohibitive costs.
+The current calibration uses approximately:
 
-A future adventure profile may define different behaviour, but this must remain outside the standard routing model.
+    neutral      flat factor 1.00
+    hilly        flat factor 1.10
+    very hilly   flat factor 1.20
 
----
+Flat or nominal terrain becomes relatively more expensive as hilliness
+increases.
 
-## 17. Turn Cost
+Uphill and downhill sections do not receive the same flat-terrain factor.
 
-### 17.1 Principle
+BRouter's elevation buffering and slope processing are used to integrate this
+behaviour into the routing calculation.
 
-Turn cost must not be used as the main curviness mechanism.
 
-A physical bend in a continuous road is not equivalent to an intersection or routing manoeuvre.
+## 28. Curviness and Hilliness Correlation
 
-### 17.2 Intended use
+Although curviness and hilliness are conceptually independent, they are often
+correlated in real road networks.
 
-Turn cost may be used to:
+Hill and mountain roads frequently:
 
-* avoid unnecessary road switching
-* prefer route continuity
-* reduce intersection-heavy zig-zag routes
-* distinguish roundabouts where appropriate
+- contain more curves
+- belong to secondary or tertiary road classes
+- avoid major high-speed corridors
+- already receive favourable Curvy costs
 
-Initial calibration may vary turn cost slightly between presets, but large differences should be avoided.
+As a result, Curvy may naturally select many of the same roads as Curvy Hilly.
 
-Tentative starting values:
+This is not necessarily a defect.
 
-| Curviness  | Turn cost |
-| ---------- | --------: |
-| Fast       |       120 |
-| Fast Curvy |        90 |
-| Curvy      |        70 |
-| Very Curvy |        60 |
+A separate Hilliness user profile is only justified if the additional
+topographical preference creates a useful and reproducible difference.
 
-These values are experimental and must be validated.
 
-If testing shows that lower turn costs introduce settlement zig-zagging, the values should be increased or made constant across profiles.
+## 29. Current Hilliness Assessment
 
----
+Calibration to date has shown very little difference between:
 
-## 18. Hilliness Model
+    Curvy
+    Curvy Hilly
 
-### 18.1 Independence
+Across most tested routes the resulting paths are identical or nearly
+identical.
 
-Hilliness must remain independent from road-class curviness.
+A measurable difference was observed on part of the Fribourg -> Altdorf test,
+but only across a small fraction of the complete route.
 
-Changing:
+Hilliness therefore remains part of the internal model and calibration
+framework but is not currently considered necessary for the initial
+user-facing profile set.
 
-```text
-hilliness
-```
 
-must not change:
+## 30. Cost Composition
 
-```text
-curviness
-```
+At a simplified level, normal road cost is calculated as:
 
-or the basic road-class preference matrix.
+    calculated_cost =
+        time_cost
+        x road_character
+        x town_modifier
+        x motorway_modifier
 
-### 18.2 BRouter elevation mechanism
+Hilliness may then modify the effective terrain-related cost.
 
-Hilliness should use BRouter's elevation-aware cost mechanism rather than trying to infer mountainous terrain from road classes.
+The complete BRouter implementation also applies access, toll and other
+constraints.
 
-Relevant global parameters include:
+The final cost is bounded to values suitable for BRouter's cost model.
 
-```text
-uphillcost
-uphillcutoff
-downhillcost
-downhillcutoff
-```
 
-and associated elevation buffering parameters.
+## 31. Additive Route Optimisation
 
-### 18.3 Neutral
+BRouter minimises the accumulated cost of the complete route.
 
-```text
-hilliness = 0
-```
+This has an important consequence:
 
-Elevation should not intentionally influence road attractiveness.
+A locally attractive road does not necessarily appear in the globally optimal
+route between distant endpoints.
 
-### 18.4 Hilly
+The route chosen from:
 
-```text
-hilliness = 1
-```
+    A -> D
 
-Routes with meaningful elevation variation may be preferred where they remain reasonably competitive in distance and road quality.
+does not have to be visually equivalent to independently planning:
 
-### 18.5 Very Hilly
+    A -> B
+    B -> C
+    C -> D
 
-```text
-hilliness = 2
-```
+unless the same intermediate points are part of the global optimum.
 
-Elevation may influence routing more strongly.
 
-However, the profile must still reject excessive detours whose only purpose is to accumulate elevation.
+## 32. Diagnostic Example: Lake Brienz
 
----
+The Interlaken -> Brienz test provides a useful example.
 
-## 19. Hilliness Implementation Constraint
+When routed independently, the Curvy family selects the northern shore road,
+while faster routing can use the A8 corridor.
 
-BRouter's elevation parameters are fundamentally designed to assign costs to climbing and descending.
+This demonstrates that the Curvy model is capable of recognising the northern
+road as an attractive alternative.
 
-Our requirement is different:
+On a much longer route such as Thun -> Andermatt, the visible effect is less
+pronounced because a large part of the complete journey is topographically
+constrained and provides little meaningful route choice.
 
-```text
-prefer meaningful terrain
-```
+The correct conclusion is therefore not to introduce a Lake Brienz-specific
+rule.
 
-rather than:
+Instead, the case demonstrates why local route behaviour and complete journey
+behaviour must be analysed separately.
 
-```text
-avoid climbing
-```
 
-Therefore hilliness must be implemented conservatively.
+## 33. Route Choice Availability
 
-The first implementation must not rely on negative route costs.
+The usefulness of a profile comparison depends strongly on the amount of real
+route choice available.
 
-Potential implementation approaches should be evaluated experimentally before one becomes normative.
+Three useful conceptual categories are:
 
-Candidate approaches include:
 
-1. penalising sufficiently flat alternatives slightly
-2. reducing normal elevation penalties rather than rewarding elevation
-3. combining road character and elevation effects indirectly
-4. generating hilly variants with calibrated elevation parameters
+### High-choice
 
-The selected implementation must satisfy:
+Several plausible corridors or road types exist.
 
-```text
-no negative routing incentives
-no elevation-seeking loops
-no disproportionate mountain detours
-```
+These routes are particularly useful for profile calibration.
 
----
 
-## 20. Motorway Handling
+### Mixed-choice
 
-Motorway preference is normally derived from `curviness`.
+Only parts of the journey provide meaningful alternatives.
 
-Expected baseline:
+These routes are useful for observing local profile behaviour within a longer
+journey.
 
-```text
-curviness 0 → attractive
-curviness 1 → allowed
-curviness 2 → discouraged
-curviness 3 → strongly discouraged
-```
 
-An explicit:
+### Constrained
 
-```text
-avoid_motorways
-```
+Topography or road infrastructure provides effectively one practical corridor.
 
-setting must override normal preference and make motorway routing strongly unattractive or unavailable according to the implementation decision.
+Different profiles may legitimately produce the same route.
 
-Curviness alone should normally discourage rather than absolutely prohibit motorways.
+Identical routing in such a case is not evidence that the profiles themselves
+are identical.
 
-This allows a curvy route to use a short motorway section where avoiding it would produce an unreasonable detour.
 
----
+## 34. Development Presets
 
-## 21. Trunk Handling
+The current development environment generates six presets:
 
-`highway=trunk` requires special attention because its practical meaning varies significantly between road networks and countries.
+    moto-fast
+    moto-fast-curvy
+    moto-curvy
+    moto-very-curvy
+    moto-curvy-hilly
+    moto-curvy-very-hilly
 
-The initial model should treat trunk roads as:
+They allow the parameter space to be tested systematically.
 
-```text
-Fast        attractive
-Fast Curvy  moderately attractive
-Curvy       discouraged
-Very Curvy  strongly discouraged
-```
 
-Regional behaviour must be validated through international test routes.
+## 35. Current Release Candidates
 
----
+Based on calibration to date, the current user-facing candidates are:
 
-## 22. Toll Roads
+    moto-fast
+    moto-curvy
+    moto-very-curvy
 
-Tolls are independent of curviness and hilliness.
+The remaining profiles continue to be useful for development and testing:
 
-The parameter:
+    moto-fast-curvy
+    moto-curvy-hilly
+    moto-curvy-very-hilly
 
-```text
-avoid_toll
-```
+This distinction is a release decision, not a limitation of the routing model.
 
-should control toll behaviour.
 
-Default policy for the first release:
+## 36. Why Fast Curvy Remains Internal
 
-```text
-avoid_toll = false
-```
+Fast Curvy was designed as an intermediate level between Fast and Curvy.
 
-unless user testing indicates that a different default is preferable.
+Testing has occasionally shown small differences, particularly near the start
+or end of longer motorway-oriented routes.
 
----
+Across the broader test set, however, it frequently selects the same route as
+Fast.
 
-## 23. Ferries
+The observed difference is currently insufficient to justify another
+user-facing choice.
 
-Ferry use is independent of curviness and hilliness.
+The parameter remains useful for calibration.
 
-Ferries must receive an initial transition cost so that they are selected intentionally rather than for trivial geometric shortcuts.
 
-The exact default should be determined through testing.
+## 37. Why Very Curvy Remains a Release Candidate
 
-A future parameter may provide:
+Very Curvy produces reproducible differences from Curvy.
 
-```text
-allow_ferries
-```
+On some routes the differences are local.
 
-or:
+On others, such as the Bern -> Luzern calibration case, the two profiles can
+select substantially different alternatives.
 
-```text
-avoid_ferries
-```
+This gives Very Curvy a sufficiently distinct behavioural meaning to remain a
+release candidate.
 
----
 
-## 24. Initial Costs and Route Switching
+## 38. Why Hilliness Remains Internal
 
-BRouter allows an `initialcost` to be associated with classification transitions.
+Hilliness is conceptually valid and may become more useful in future versions.
 
-This mechanism may be useful for:
+Current testing, however, indicates that much of its intended behaviour is
+already produced indirectly by Curvy routing because attractive curvy roads
+frequently occur in hilly terrain.
 
-* ferries
-* undesirable road-category transitions
-* preventing excessive switching between road types
+The model therefore retains hilliness without requiring users to choose an
+additional profile that currently produces little observable benefit.
 
-It should be used sparingly.
 
-The primary routing behaviour should remain understandable from continuous road costs rather than being dominated by hidden transition penalties.
+## 39. Planning Is Not Part of the Cost Model
 
----
+The routing model answers:
 
-## 25. Priority Classification
+    What is the preferred route from A to B?
 
-The canonical profile should define BRouter road priority classes for navigation instruction generation.
+It does not answer:
 
-The initial hierarchy may follow the established BRouter car profile:
+    Through which regions should a complete motorcycle tour pass?
 
-```text
-motorway
-motorway_link
-trunk
-trunk_link
-primary
-primary_link
-secondary
-secondary_link
-tertiary
-tertiary_link
-unclassified
-residential
-service
-track
-```
+The latter is a route-planning problem.
 
-This classification is primarily navigational metadata and must not be confused with the motorcycle attractiveness model.
 
----
+## 40. Segment-Based Planning
 
-## 26. OsmAnd Turn Instructions
+A future planning layer may divide a journey into segments:
 
-The generated profiles are primarily intended for OsmAnd.
+    A -> B
+    B -> C
+    C -> D
 
-The profile should therefore use OsmAnd-compatible turn instruction generation.
+Each segment can then be independently routed.
 
-The initial implementation should evaluate:
+This can preserve locally attractive alternatives that may not appear during
+unrestricted end-to-end optimisation.
 
-```text
-turnInstructionMode = 3
-```
+Such functionality must remain outside the `.brf` cost model.
 
-for OsmAnd-style instructions.
 
-This setting concerns navigation instructions and must not affect routing preference.
+## 41. Per-Segment Profiles
 
----
+A future planning layer may also allow different routing preferences for
+different parts of a journey:
 
-## 27. Cost Safety Rules
+    A -> B    Fast
+    B -> C    Curvy
+    C -> D    Very Curvy
 
-The implementation should maintain the following invariants.
+This would provide substantially more control without introducing
+route-specific logic into BRouter profiles.
 
-### 27.1 Unusable means unusable
 
-Illegal or technically inaccessible roads should receive an effectively prohibitive routing value rather than merely a moderate penalty.
+## 42. Future Road-Character Model
 
-### 27.2 Preferences remain bounded
+Road classification is currently the primary proxy for motorcycle
+attractiveness.
 
-No attractive-road heuristic may produce a negative routing cost.
+Future research may investigate additional information such as:
 
-### 27.3 Small-road trap prevention
+- estimated traffic
+- speed environment
+- road continuity
+- settlement context
+- surface quality
+- elevation
+- other reliable BRouter or OpenStreetMap attributes
 
-Increasing curviness must not systematically reduce the cost of:
+Such information should only be introduced when it improves behaviour across
+multiple independent test cases.
 
-```text
-residential
-living_street
-service
-track
-path
-```
 
-### 27.4 Urban zig-zag prevention
+## 43. Geometric Curviness
 
-A route must not gain motorcycle attractiveness simply from repeatedly changing local streets.
+The current model does not directly calculate geometric road curvature.
 
-### 27.5 Elevation loop prevention
+A future model could potentially analyse or precompute properties such as:
 
-Hilliness must not create loops or large detours whose main effect is gaining and losing elevation.
+- heading changes
+- curve density
+- road sinuosity
+- direction-change frequency
 
----
+However, geometric curviness alone would still not define an attractive
+motorcycle road.
 
-## 28. Cost Composition
+A winding residential road must not automatically outrank a high-quality
+secondary road.
 
-The implementation should aim for a structure conceptually similar to:
+Any future geometric model would therefore need to remain part of a broader
+road-character model.
 
-```text
-base_cost
-    = road_class_cost(curviness)
 
-speed_modifier
-    = speed_character(highway, maxspeed, curviness)
+## 44. Generalisation Requirement
 
-surface_modifier
-    = surface_cost(surface, tracktype, allow_unpaved)
+Every future routing-model change should follow this sequence:
 
-urban_modifier
-    = urban_cost(road_class, town_context, curviness)
+    observation
+        ->
+    general hypothesis
+        ->
+    model change
+        ->
+    independent validation
 
-optional_modifier
-    = motorway/toll/ferry preferences
+A model change should not be accepted merely because it improves the route
+that originally motivated the change.
 
-final_cost
-    = composed non-negative cost
-```
+This requirement is central to avoiding overfitting.
 
-Accessibility is evaluated before this preference model.
 
-Elevation is handled independently.
+## 45. Model Stability
 
----
+Once a stable release exists, routing-model parameters should not be changed
+casually.
 
-## 29. Preset Generation
+Changes to road-character factors, speed assumptions or topographical
+behaviour may alter routes across large geographic areas.
 
-Preset configuration should be stored outside the canonical BRF logic.
+Future changes should therefore be accompanied by:
 
-Initial conceptual configuration:
+- automated smoke tests
+- regression tests
+- behaviour tests
+- comparison with previous routing results
+- documentation of the reason for the change
 
-```yaml
-fast:
-  curviness: 0
-  hilliness: 0
 
-fast-curvy:
-  curviness: 1
-  hilliness: 0
+## 46. Current Model Status
 
-curvy:
-  curviness: 2
-  hilliness: 0
+The current routing model is considered a release-candidate model rather than
+a final immutable model.
 
-very-curvy:
-  curviness: 3
-  hilliness: 0
+The major conceptual components are now established:
 
-curvy-hilly:
-  curviness: 2
-  hilliness: 1
-```
+- motorcycle-specific access handling
+- time-aware base routing
+- explicit and implicit speed handling
+- surface-aware effective speed
+- road-character-based curviness
+- conservative local-road handling
+- settlement handling
+- motorway and toll options
+- independent hilliness model
+- separation of routing and route planning
 
-The generation tool should inject these values into the canonical profile without changing routing logic.
-
----
-
-## 30. Generated Profile Requirements
-
-Every generated `.brf` must:
-
-* be valid BRouter profile syntax
-* contain the expected preset values
-* be reproducible
-* contain an indication that it is generated
-* identify the project version if practical
-* not contain manual profile-specific modifications
-
-Generated files should include a comment similar to:
-
-```text
-# GENERATED FILE - DO NOT EDIT
-# Source: src/moto-base.brf
-# Preset: curvy
-```
-
----
-
-## 31. Calibration Strategy
-
-Numeric cost values are calibration parameters rather than immutable requirements.
-
-Changes must be driven by route behaviour.
-
-A calibration cycle should be:
-
-```text
-change one routing assumption
-          │
-          ▼
-generate profiles
-          │
-          ▼
-run reference routes
-          │
-          ▼
-compare metrics
-          │
-          ▼
-inspect routes
-          │
-          ▼
-accept / adjust / revert
-```
-
-Multiple unrelated cost parameters should not be changed simultaneously unless necessary.
-
----
-
-## 32. Reference Profiles
-
-Implementation work may consult existing BRouter profiles for proven patterns.
-
-Primary technical reference:
-
-```text
-BRouter car-vario.brf
-```
-
-Useful for:
-
-* access structure
-* one-way handling
-* surface speed handling
-* road classification
-* node barriers
-* priority classification
-
-Secondary technical reference:
-
-```text
-BRouter moped.brf
-```
-
-Useful for:
-
-* motorcycle-specific access tags
-
-The moped profile must not be treated as a production-ready safety baseline.
-
----
-
-## 33. Implementation Order
-
-The first implementation should be developed in the following order:
-
-### Phase 1 – Legal routing
-
-Implement:
-
-```text
-access
-motorcycle access
-one-way rules
-barriers
-basic road classes
-```
-
-Success criterion:
-
-> The profile produces legally plausible motorcycle routes without route-character optimisation.
-
-### Phase 2 – Basic road suitability
-
-Implement:
-
-```text
-surface
-track handling
-residential penalties
-service-road penalties
-motorway/trunk handling
-```
-
-Success criterion:
-
-> The router behaves like a conservative road-motorcycle router.
-
-### Phase 3 – Curviness
-
-Implement:
-
-```text
-road-class matrix
-speed modifier
-urban protection
-curviness levels 0–3
-```
-
-Success criterion:
-
-> Increasing curviness visibly changes road selection without creating unreasonable local-road detours.
-
-### Phase 4 – Hilliness
-
-Implement:
-
-```text
-hilliness levels 0–2
-elevation calibration
-detour protection
-```
-
-Success criterion:
-
-> Hilliness changes terrain preference without altering the selected curviness model.
-
-### Phase 5 – Optional preferences
-
-Implement as required:
-
-```text
-tolls
-ferries
-explicit motorway avoidance
-```
-
-### Phase 6 – Calibration
-
-Tune all presets against documented reference routes.
-
----
-
-## 34. Open Technical Questions
-
-The following questions remain intentionally unresolved for v0.1:
-
-1. What is the best available approximation for road curviness within BRouter profile capabilities?
-2. How strongly should `maxspeed` influence curviness?
-3. Should BRouter's estimated town classification be part of the standard model?
-4. Should turn cost vary by curviness or remain constant?
-5. What is the safest and most predictable way to implement positive hilliness preference?
-6. How much detour should each curviness level tolerate?
-7. How much detour should each hilliness level tolerate?
-8. How should missing or conflicting `surface=*` information be handled?
-9. What exact motorcycle-access precedence produces the most correct behaviour?
-10. How should country-specific interpretations of `trunk` be addressed?
-11. Should ferry avoidance be a boolean or a graduated preference?
-12. Should future versions expose configuration directly or continue using generated presets?
-
-These questions must be resolved by documented experiments and reference-route testing.
-
----
-
-## 35. v0.1 Design Rule
-
-When uncertain between a clever heuristic and a predictable one, choose the predictable one.
-
-The first goal is not to create the theoretically most exciting motorcycle route.
-
-The first goal is to create a router whose behaviour can be understood, measured, tested, and improved.
-
+The next phase focuses primarily on consolidating testing and release tooling
+rather than adding further routing dimensions.

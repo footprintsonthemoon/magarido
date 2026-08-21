@@ -1,1025 +1,912 @@
-# BRouter Motorcycle Profiles – Testing Strategy
+# BRouter Motorcycle Profiles – Testing and Calibration
 
 ## 1. Purpose
 
-This document defines how routing behaviour is tested, compared, and calibrated.
+This document describes the testing and calibration methodology used by the
+BRouter Motorcycle Profiles project.
 
-The goal is to make changes to the routing model measurable and reproducible rather than relying only on visual inspection or subjective impressions.
+Testing has three main objectives:
 
-Testing combines:
+1. verify that generated profiles are technically valid,
+2. verify that routing behaviour remains plausible,
+3. determine whether different profiles provide meaningful and reproducible
+   user value.
 
-* automated route generation
-* quantitative metrics
-* route-shape inspection
-* regression checks
-* subjective motorcycle-route evaluation
+The objective is not to make every profile generate a different route for every
+test case.
 
-The same reference routes should be reused over time so that behavioural changes remain comparable.
+Identical routes are expected when geography, infrastructure or travel-time
+differences provide no meaningful alternative.
 
----
 
 ## 2. Testing Principles
 
-### 2.1 Test behaviour, not implementation details
+### 2.1 Test behaviour, not visual difference
 
-Tests should primarily verify routing outcomes.
+A profile is not successful merely because its route looks different.
 
-Examples:
+A difference should correspond to the intended routing behaviour.
 
-```text
-Does Very Curvy use less motorway than Fast?
-Does Curvy avoid residential zig-zag routing?
-Does Hilly materially change terrain preference?
-Does a routing change create unreasonable detours?
-```
+For example:
 
-Tests should not overfit to individual internal BRF expressions unless required for safety.
+- Fast should favour travel efficiency.
+- Curvy should accept reasonable additional cost for attractive roads.
+- Very Curvy should accept a stronger trade-off.
+- Hilliness should only matter where meaningful topographical alternatives
+  exist.
 
-### 2.2 Change one thing at a time
 
-Where practical, only one routing assumption or cost family should be changed per calibration step.
+### 2.2 Identical routes are valid results
 
-This makes behavioural changes easier to understand.
+Two profiles may legitimately select the same route.
 
-### 2.3 Keep reference routes stable
+This can occur when:
 
-Reference routes should not be replaced casually.
+- there is effectively only one practical road,
+- an alternative is disproportionately slower,
+- topography constrains the corridor,
+- both profiles evaluate the available roads similarly.
 
-Stable routes provide a regression baseline.
+Artificially increasing parameter differences merely to force visually
+different routes is explicitly avoided.
 
-New routes may be added when they expose behaviour not covered by existing cases.
 
-### 2.4 Separate objective and subjective evaluation
+### 2.3 Avoid route-specific calibration
 
-Quantitative metrics and subjective motorcycle quality are both useful, but they must be recorded separately.
+A concrete road or route may reveal a weakness in the model.
 
-A route that is longer is not automatically better.
+It must not directly result in a route-specific exception.
 
-A route that is statistically more "curvy" is not automatically enjoyable.
+The required process is:
 
----
+    observation
+        ->
+    general hypothesis
+        ->
+    model change
+        ->
+    independent validation
 
-## 3. Test Levels
+A change is accepted only when it improves the general model without creating
+unreasonable behaviour elsewhere.
 
-The project should use four test levels.
 
-### Level 1 – Profile validation
+### 2.4 Human evaluation matters
 
-Verify that generated profiles are syntactically valid and loadable by BRouter.
+Numeric output alone cannot determine whether a motorcycle route is attractive.
 
-### Level 2 – Functional routing tests
+Automated tests provide:
 
-Verify that routes can be calculated and that fundamental routing rules work.
+- route length
+- estimated travel time
+- ascent
+- BRouter cost
+- technical success or failure
 
-### Level 3 – Behavioural comparison
+Visual inspection and local knowledge provide additional information about:
 
-Compare presets against each other on stable reference routes.
+- route character
+- meaningful corridor differences
+- unrealistic detours
+- motorway use
+- village and residential routing
+- real-world motorcycle attractiveness
 
-### Level 4 – Real-world evaluation
+Both forms of evaluation are required.
 
-Ride selected routes and record subjective quality and observed routing issues.
 
----
+## 3. Test Environment
 
-## 4. Profile Validation
+The reference development environment is macOS.
 
-Every generated profile must pass basic validation.
+BRouter runs locally using its standalone server.
 
-Tests should verify:
+The expected local endpoint is:
 
-* profile file exists
-* file is non-empty
-* expected preset name is present
-* expected `curviness` value is present
-* expected `hilliness` value is present
-* generated-file warning is present
-* BRouter accepts the profile
-* route calculation succeeds for at least one smoke-test route
+    http://localhost:17777/brouter
 
-Example expected header:
+Profiles are generated from the canonical source model before testing.
 
-```text
-# GENERATED FILE - DO NOT EDIT
-# Source: src/moto-base.brf
-# Preset: curvy
-```
+Typical workflow:
 
----
+    python tools/generate_profiles.py
+    python tools/run_smoke_tests.py
+    python tools/run_calibration_tests.py
+    python tools/serve_results.py
 
-## 5. Preset Matrix
+The browser-based result viewer is used for visual route comparison.
 
-The initial test set covers:
 
-| Preset      | Curviness | Hilliness |
-| ----------- | --------: | --------: |
-| Fast        |         0 |         0 |
-| Fast Curvy  |         1 |         0 |
-| Curvy       |         2 |         0 |
-| Very Curvy  |         3 |         0 |
-| Curvy Hilly |         2 |         1 |
+## 4. Generated Profiles
 
-Future presets should be added to the same matrix rather than introducing separate test logic.
+The current development test set contains six profiles:
 
----
+    moto-fast
+    moto-fast-curvy
+    moto-curvy
+    moto-very-curvy
+    moto-curvy-hilly
+    moto-curvy-very-hilly
 
-## 6. Reference Route Selection
+All six remain useful during calibration.
 
-Reference routes should cover different routing situations.
+The current release candidates are:
 
-The initial set should include:
+    moto-fast
+    moto-curvy
+    moto-very-curvy
 
-```text
-Biel/Bienne → Neuchâtel
-Bern → Luzern
-Thun → Andermatt
-Zürich → Davos
-Aigle → Martigny
-```
+The remaining profiles are retained as experimental or diagnostic parameter
+combinations.
 
-These routes should be supplemented with additional test cases where useful.
 
-Reference routes should represent different characteristics such as:
+## 5. Smoke Tests
 
-* motorway availability
-* dense urban areas
-* flat terrain
-* hilly terrain
-* alpine terrain
-* multiple viable secondary-road alternatives
-* constrained valleys
-* ferry situations
-* border crossings
-* regions with different OSM tagging practices
+Smoke tests answer the basic question:
 
----
+> Can every generated profile successfully calculate a route?
 
-## 7. Test Route Categories
+They are intended to detect problems such as:
 
-Reference routes should be tagged by category.
+- invalid BRF syntax
+- unsupported lookup values
+- missing generated profiles
+- broken expressions
+- BRouter HTTP errors
+- changes that make a profile unusable
 
-Possible categories:
+Smoke tests are not intended to evaluate route quality.
 
-```text
-flat
-urban
-motorway
-rural
-hilly
-alpine
-border
-ferry
-mixed
-```
 
-A route may belong to multiple categories.
+## 6. Smoke-Test Baseline
+
+The smoke test uses a known route between Biel/Bienne and Neuchatel.
+
+A successful run should return one `[OK]` result for every development profile.
 
 Example:
 
-```text
-Thun → Andermatt
-categories:
-  - rural
-  - hilly
-  - alpine
-```
+    python tools/run_smoke_tests.py
 
----
+A failure must be investigated before calibration results are considered
+meaningful.
 
-## 8. Route Definition
 
-Reference routes should be stored as structured test data.
+## 7. Calibration Tests
 
-A route definition should contain at least:
+Calibration tests compare the behaviour of profiles across routes with
+different characteristics.
 
-```yaml
-id: ch-biel-neuchatel
-from:
-  name: Biel/Bienne
-  lat: 47.1368
-  lon: 7.2468
+For each profile, the test tooling records values including:
 
-to:
-  name: Neuchâtel
-  lat: 46.9896
-  lon: 6.9293
+- distance
+- estimated travel time
+- ascent
+- BRouter routing cost
 
-categories:
-  - rural
-  - motorway
-  - mixed
-```
+The generated GeoJSON routes can then be inspected visually.
 
-Coordinates should be fixed once selected.
 
-This avoids route changes caused by different geocoding results.
+## 8. Route-Choice Categories
 
----
+A key lesson from calibration is that route length alone does not determine
+whether a route is useful for comparing profiles.
 
-## 9. Waypoints
+The amount of real route choice is more important.
 
-Reference routes should normally use only start and destination.
+Three categories are used.
 
-Intermediate waypoints should only be added when the purpose of a test explicitly requires them.
 
-This ensures that routing behaviour is being tested rather than manually constrained.
+### 8.1 High-choice routes
 
----
+Several plausible corridors or road types exist.
 
-## 10. Test Data Versioning
+These routes are particularly useful for distinguishing profiles.
 
-Reference-route definitions must be version-controlled.
+Possible alternatives may include:
 
-Changes to:
+- motorway
+- major through-road
+- secondary-road corridor
+- rural road
+- pre-alpine or hill corridor
 
-* coordinates
-* categories
-* expected behaviour
-* thresholds
 
-must be reviewed like routing-code changes.
+### 8.2 Mixed-choice routes
 
----
+Only part of the route provides meaningful alternatives.
 
-## 11. Core Metrics
+Other sections may be constrained by geography or infrastructure.
 
-Each calculated route should record where technically available:
+These routes are useful for observing whether profile behaviour remains
+sensible over longer journeys.
 
-```text
-distance
-estimated travel time
-elevation gain
-elevation loss
-maximum elevation
-minimum elevation
-```
+Profile differences should be evaluated primarily on the sections where real
+choice exists.
 
-In addition, road usage should be analysed.
 
----
+### 8.3 Constrained routes
 
-## 12. Road-Class Metrics
+The road network or topography provides effectively one practical corridor.
 
-The test tooling should aim to calculate:
+Such routes are useful as regression tests but provide little information about
+profile differentiation.
 
-```text
-motorway distance
-trunk distance
-primary distance
-secondary distance
-tertiary distance
-unclassified distance
-residential distance
-living_street distance
-service distance
-track distance
-```
+Identical routes are expected and are not considered a failure.
 
-Both absolute distance and percentage should be recorded.
 
-Example:
+## 9. Test Types
 
-```text
-motorway:
-  distance_km: 12.4
-  percentage: 18.7
-```
+The calibration suite distinguishes three functional test types.
 
----
 
-## 13. Surface Metrics
+### 9.1 Regression tests
 
-Where route metadata allows it, record:
+Question:
 
-```text
-paved distance
-unpaved distance
-unknown-surface distance
-```
+> Does the routing model continue to produce sensible routes?
 
-The standard profiles should normally produce:
+Regression tests are intended to detect unintended side effects.
 
-```text
-unpaved distance = 0
-```
+A route does not need to produce different results across profiles.
 
-Unexpected unpaved routing should be treated as a high-priority defect.
 
----
+### 9.2 Behaviour tests
 
-## 14. Urban Metrics
+Question:
 
-Urban behaviour should be evaluated separately.
+> Does each profile exhibit the routing character it claims to represent?
 
-Possible metrics include:
+These are the primary tests for deciding whether a profile provides enough
+user value to justify its existence.
 
-```text
-residential-road distance
-living-street distance
-service-road distance
-low-speed road distance
-number of suspicious local-road excursions
-```
 
-Automated urban classification may be incomplete.
+### 9.3 Diagnostic tests
 
-Visual route inspection remains important.
+Question:
 
----
+> Why does a particular routing behaviour occur?
 
-## 15. Motorway Behaviour
+A diagnostic test may split a long route into smaller sections.
 
-Motorway usage should normally decrease as `curviness` increases.
+Diagnostic tests are used to understand the cost model.
 
-For the same reference route, the expected tendency is:
+They must not be used as justification for route-specific tuning.
 
-```text
-Fast
-  >= Fast Curvy
-  >= Curvy
-  >= Very Curvy
-```
 
-This is a behavioural expectation, not a strict rule for every individual route.
+## 10. Biel/Bienne -> Neuchatel
 
-A short motorway segment may remain correct if avoiding it would create a disproportionate detour.
+### Role
 
----
+Regression and topographical behaviour test.
 
-## 16. Curviness Behaviour
+### Characteristics
 
-Increasing curviness should generally produce a visible shift towards:
+The route follows a geographically constrained area around the lakes.
 
-```text
-secondary
-tertiary
-suitable unclassified
-```
+A hill chain north of the lakes creates a meaningful distinction between a
+flatter lake corridor and a hillier alternative.
 
-and away from:
+### Observations
 
-```text
-motorway
-trunk
-major high-speed primary roads
-```
+Testing produced two broad route families.
 
-It must not systematically increase:
+Fast-oriented and moderately Curvy routing frequently use a similar lake
+corridor.
 
-```text
-residential
-living_street
-service
-track
-```
+Stronger Curvy and Hilly variants may move into the hill corridor.
 
----
+### Interpretation
 
-## 17. Fast Curvy Behaviour
+This is useful for observing topographical behaviour but is not an ideal
+general-purpose calibration route.
 
-`Fast Curvy` is particularly important because it acts as the compromise profile.
+The geography strongly determines the available alternatives.
 
-It should not behave merely as:
+A conceivable alternative south of the first lake and later crossing toward
+the northern shore illustrates why local geographic knowledge must not be
+converted directly into routing rules.
 
-```text
-Fast with a tiny cost adjustment
-```
 
-nor as:
+## 11. Bern -> Luzern
 
-```text
-Curvy with a different name
-```
+### Role
 
-Expected behaviour:
+High-choice behaviour test.
 
-* visibly less motorway dependence than Fast where good alternatives exist
-* materially shorter or faster than Curvy in many cases
-* limited use of minor roads
-* no artificial local-road detours
+### Characteristics
 
----
+The route provides meaningful choices between efficient major-road routing and
+more motorcycle-oriented secondary-road corridors.
 
-## 18. Very Curvy Behaviour
+### Observations
 
-`Very Curvy` may accept larger detours than `Curvy`.
+Fast-oriented profiles form a clearly different route family from the more
+Curvy profiles.
 
-However, a stronger curviness setting must not justify arbitrary distance inflation.
+Curvy and Very Curvy can select substantially different routes with relatively
+few shared sections.
 
-Potential regression signals include:
+### Interpretation
 
-```text
-large distance increase with little road-character improvement
-repeated local-road switching
-urban zig-zag routing
-loops
-unnecessary backtracking
-```
+This is one of the strongest current tests for demonstrating that Very Curvy
+has a distinct routing character.
 
----
+It also demonstrates that the Curviness parameter can affect complete corridor
+selection rather than merely producing small local deviations.
 
-## 19. Hilliness Behaviour
 
-The comparison:
+## 12. Thun -> Andermatt
 
-```text
-Curvy
-versus
-Curvy Hilly
-```
+### Role
 
-is the primary initial hilliness test.
+Mixed-choice alpine behaviour test.
 
-Both profiles have identical:
+### Characteristics
 
-```text
-curviness = 2
-```
+The western part of the route provides several meaningful alternatives.
 
-Only hilliness differs.
+A large part of the eastern section is constrained by alpine geography and the
+available pass-road network.
 
-This makes the comparison particularly useful.
+Approximately 70 km of the roughly 115 km journey provide very limited
+practical route choice.
 
-Expected effects may include:
+### Observations
 
-* more elevation variation
-* higher maximum elevation
-* greater elevation gain
-* selection of hilly alternatives
+Fast and Curvy profile families differ meaningfully in the sections where
+alternatives exist.
 
-Expected non-effects:
+The complete routes may nevertheless appear relatively similar because a large
+part of the journey converges onto the same road corridor.
 
-* major changes in road-class philosophy
-* increased residential usage
-* increased unpaved usage
-* extreme distance inflation
+### Interpretation
 
----
+This route demonstrated an important testing principle:
 
-## 20. Hilliness Independence Test
+> Profile differentiation must be evaluated relative to the portion of the
+> journey where meaningful alternatives exist, not merely relative to total
+> route length.
 
-The test suite should explicitly verify the design assumption:
 
-```text
-changing hilliness does not change curviness configuration
-```
+## 13. Thun -> Interlaken
 
-At minimum, generated profile values must confirm this mechanically.
+### Role
 
-Behaviourally, hilliness changes should not create large road-class shifts unless those shifts are a natural consequence of terrain.
+Diagnostic test.
 
----
+### Observations
 
-## 21. Distance Detour Ratio
+The profiles form two clear route families:
 
-A useful comparison metric is the detour ratio relative to Fast.
+    moto-fast
+    moto-fast-curvy
 
-Conceptually:
+and:
 
-```text
-detour_ratio =
-    route_distance(profile)
-    /
-    route_distance(fast)
-```
+    moto-curvy
+    moto-very-curvy
+    moto-curvy-hilly
+    moto-curvy-very-hilly
 
-Examples:
+### Interpretation
 
-```text
-1.00 = same distance
-1.10 = 10% longer
-1.25 = 25% longer
-```
+The test confirms that the Curvy model already influences route choice before
+the more constrained alpine section of the longer Thun -> Andermatt journey.
 
-No hard universal limit should initially be enforced.
 
-Instead, observed values should be collected during calibration.
+## 14. Interlaken -> Brienz
 
----
+### Role
 
-## 22. Time Detour Ratio
+Diagnostic high-choice test.
 
-The same concept applies to estimated travel time:
+### Characteristics
 
-```text
-time_ratio =
-    travel_time(profile)
-    /
-    travel_time(fast)
-```
+Two clearly different corridors exist around Lake Brienz.
 
-This is especially important for motorcycle routing because two routes with similar distances may have very different travel times.
+A fast corridor is available via the A8.
 
----
+An attractive through-road runs along the northern shore through the
+Ringgenberg, Niederried and Oberried area.
 
-## 23. Initial Detour Guidance
+### Observations
 
-The following values may be used as starting guidance only.
+When this section is routed independently, the Curvy profile family selects the
+northern alternative.
 
-They are not normative acceptance thresholds.
+The Fast family selects the faster corridor.
 
-```text
-Fast Curvy:
-  small detours expected
+### Interpretation
 
-Curvy:
-  moderate detours acceptable
+This test is particularly important because it demonstrates that the routing
+model is capable of recognising the northern through-road as an attractive
+motorcycle alternative.
 
-Very Curvy:
-  larger but clearly justified detours acceptable
+The fact that the visual effect may be less obvious on the complete
+Thun -> Andermatt route must therefore not be interpreted as evidence that the
+northern road is incorrectly classified.
 
-Curvy Hilly:
-  moderate additional detour may be acceptable
-```
+No Lake-Brienz-specific routing rule is required or desired.
 
-Exact thresholds should be derived empirically.
 
----
+## 15. Brienz -> Andermatt
 
-## 24. Excessive Detour Detection
+### Role
 
-The test tooling should flag routes for manual review when one or more of the following occurs:
+Diagnostic constrained-route test.
 
-```text
-distance changes dramatically
-travel time changes dramatically
-road-class composition changes unexpectedly
-residential usage increases sharply
-unpaved distance becomes non-zero
-route contains loops
-route visibly backtracks
-```
+### Characteristics
 
-Flagging does not automatically mean failure.
+The route is strongly determined by alpine geography and the available pass
+roads.
 
-It means the route requires inspection.
+There is little realistic corridor choice over a substantial portion of the
+route.
 
----
+### Interpretation
 
-## 25. Regression Baseline
+Profile convergence on this section is expected.
 
-Each accepted release or calibration milestone should establish a baseline.
+The test helps explain why the complete Thun -> Andermatt route can visually
+understate the differences observed in its western sections.
 
-For every:
 
-```text
-reference route × preset
-```
+## 16. Zuerich -> Davos
 
-store the resulting metrics.
+### Role
 
-A later change can then be compared against the baseline.
+Long-distance alpine behaviour and regression test.
 
-Example:
+### Characteristics
 
-```text
-baseline/
-  v0.1/
-    ch-biel-neuchatel/
-      fast.json
-      fast-curvy.json
-      curvy.json
-      very-curvy.json
-      curvy-hilly.json
-```
+The route combines long-distance travel with alpine terrain.
 
----
+### Observations
 
-## 26. Regression Comparison
+Fast and Curvy profile families show different behaviour.
 
-A regression report should highlight differences such as:
+Several of the stronger Curvy and Hilly profiles can converge onto similar
+corridors.
 
-```text
-distance       +8.3%
-travel time    +5.7%
-motorway       -42%
-secondary      +31%
-residential    +0.4 km
-elevation gain +320 m
-```
+### Interpretation
 
-The report should make route behaviour changes visible without requiring manual comparison of raw data.
+The route is useful for verifying that the routing model remains plausible over
+a longer alpine journey.
 
----
+It also contributed to the observation that Curviness and Hilliness are often
+correlated in real road networks.
 
-## 27. Behavioural Expectations
 
-The test suite should encode broad expectations rather than overly precise route outputs.
+## 17. Aigle -> Martigny
 
-Examples:
+### Role
 
-```text
-Very Curvy should normally use no more motorway than Curvy.
+Constrained regression test.
 
-Curvy should normally use no more motorway than Fast.
+### Characteristics
 
-Increasing curviness must not systematically increase residential-road usage.
+The route is relatively short and follows a valley with limited meaningful
+alternatives.
 
-Standard profiles should not use unsuitable unpaved roads.
+### Observations
 
-Curvy Hilly should preserve curviness level 2.
-```
+Profile differences are small.
 
-These expectations should be treated as regression guards.
+### Interpretation
 
----
+This is expected.
 
-## 28. Avoid Exact Route Locking
+The route is not particularly useful for profile differentiation, but remains
+valuable for detecting unreasonable routing behaviour.
 
-Tests should not normally require an exact sequence of road segments.
 
-OpenStreetMap data changes over time.
+## 18. Biel/Bienne -> Rotkreuz
 
-BRouter data and elevation data may also change.
+### Role
 
-Tests should therefore focus on:
+High-choice behaviour test.
 
-* route characteristics
-* broad behavioural expectations
-* metric ranges
-* major anomalies
+### Characteristics
 
-rather than exact geometry equality.
+The route crosses a substantial part of the Swiss Plateau and provides
+multiple realistic combinations of motorway, major roads and secondary-road
+corridors.
 
----
+### Observations
 
-## 29. OSM Data Version
+Curvy and Very Curvy differ clearly over an initial portion of the journey and
+later converge.
 
-Where possible, test reports should record:
+### Interpretation
 
-```text
-BRouter version
-routing-data date
-profile version
-test-tool version
-```
+The route provides useful evidence that Very Curvy can produce a reproducible
+additional routing preference without requiring a completely different route
+from start to destination.
 
-This makes changes caused by map-data updates distinguishable from changes caused by profile logic.
 
----
+## 19. Biel/Bienne -> Cham
 
-## 30. BRouter Version
+### Role
 
-Test output should include the BRouter version used.
+Former high-choice behaviour test.
 
-Changes in BRouter itself may alter routing behaviour.
+### Observations
 
-A regression should therefore not automatically be attributed to the profile.
+The test produced behaviour very similar to Biel/Bienne -> Rotkreuz.
 
----
+### Decision
 
-## 31. Smoke Tests
+The route was removed from the primary calibration set because the two tests
+were considered too similar to provide sufficient independent information.
 
-A small subset of routes should serve as fast smoke tests.
+This reflects a general test-suite principle:
 
-Suggested initial smoke routes:
+> More test routes are not automatically better if they exercise essentially
+> the same geographic and routing choices.
 
-```text
-Biel/Bienne → Neuchâtel
-Thun → Andermatt
-```
 
-These provide:
+## 20. Lausanne -> Thun
 
-* one relatively short mixed route
-* one strongly terrain-dependent route
+### Role
 
-All presets should route successfully on both.
+Long-distance high-choice behaviour test.
 
----
+### Characteristics
 
-## 32. Full Test Suite
+The route combines motorway-oriented travel with rural and pre-alpine
+alternatives.
 
-The full suite should run:
+### Observations
 
-```text
-all presets
-×
-all reference routes
-```
+Fast and Fast Curvy showed some differences, particularly near the beginning
+of the journey and around the Bern area.
 
-With five initial profiles and five reference routes:
+On other test routes, however, Fast and Fast Curvy frequently remain
+identical.
 
-```text
-5 × 5 = 25 routes
-```
+Curvy and Curvy Hilly did not show a meaningful difference.
 
-This is small enough to remain practical.
+### Interpretation
 
----
+The test helped clarify the character of Fast Curvy.
 
-## 33. Test Output
+When differences occur, they tend to appear before entering a dominant
+motorway corridor or after leaving it.
 
-Automated test results should preferably use structured data.
+This behaviour is plausible, but across the complete test set the additional
+user value remains limited.
 
-Example:
 
-```json
-{
-  "route": "ch-biel-neuchatel",
-  "profile": "curvy",
-  "distance_km": 44.1,
-  "travel_time_min": 49,
-  "elevation_gain_m": 310,
-  "road_classes": {
-    "motorway_pct": 0,
-    "primary_pct": 18.4,
-    "secondary_pct": 52.1,
-    "tertiary_pct": 21.7,
-    "residential_pct": 1.8
-  }
-}
-```
+## 21. Fribourg -> Altdorf
 
-Human-readable reports can then be generated from this data.
+### Role
 
----
+High-choice behaviour and topographical test.
 
-## 34. Route Geometry
+### Characteristics
 
-Where practical, every test result should also retain route geometry, for example as GPX or GeoJSON.
+The route provides combinations of major-road, motorway, rural, pre-alpine and
+more topographically varied alternatives.
 
-This allows:
+### Observations
 
-* visual comparison
-* loading routes into OsmAnd
-* inspection in mapping tools
-* archiving known routing behaviour
+Curvy and Curvy Hilly differ only over a small portion of the route,
+approximately five percent in visual inspection.
 
----
+### Interpretation
 
-## 35. Visual Inspection
+This is significant because the route was deliberately selected as a case
+where Hilliness had a reasonable opportunity to demonstrate independent
+behaviour.
 
-Quantitative metrics cannot detect all routing problems.
+The limited difference adds evidence that a separate Hilly user profile is not
+currently justified.
 
-Important routes should be inspected visually for:
 
-```text
-zig-zagging
-loops
-backtracking
-unreasonable village detours
-unexpected motorway use
-unexpected tiny-road use
-poor route continuity
-```
+## 22. Fribourg -> Ilanz
 
-Visual inspection should be mandatory for significant routing-model changes.
+### Role
 
----
+Long-distance alpine behaviour and regression test.
 
-## 36. Subjective Motorcycle Evaluation
+### Characteristics
 
-Selected routes may receive real-world evaluation.
+This is a substantially longer route combining high-speed travel, rural
+corridors and increasingly constrained alpine geography.
 
-Suggested score:
+### Observations
 
-```text
-1 = poor
-2 = acceptable
-3 = good
-4 = very good
-5 = excellent
-```
+The current routing behaviour was visually verified as plausible.
 
-The score should always include a short reason.
+Fast, Curvy and Very Curvy remain meaningful routing concepts over the longer
+journey.
 
-Example:
+### Interpretation
 
-```yaml
-score: 4
-notes:
-  Good flowing secondary roads.
-  One unnecessary village detour near the destination.
-```
+The test provides additional evidence that the current release candidates do
+not depend solely on short or geographically narrow calibration routes.
 
----
 
-## 37. Real-World Test Record
+## 23. Fast vs. Fast Curvy
 
-A ridden route may record:
+Fast Curvy was originally intended as an intermediate user profile:
 
-```yaml
-route: ch-thun-andermatt
-profile: curvy-hilly
-date: 2026-09-01
+    Fast
+      ->
+    Fast Curvy
+      ->
+    Curvy
 
-score: 4
+Across the test set, Fast and Fast Curvy frequently produce identical routes.
 
-observations:
-  - good mountain-road selection
-  - no unwanted unpaved segments
-  - one unnecessary local-road diversion
+Differences have been observed on some longer routes, including sections of
+Lausanne -> Thun and Biel/Bienne -> Cham.
 
-navigation:
-  - turn instructions correct
-  - no obvious access issues
-```
+These differences tend to occur near the transition between local roads and a
+dominant motorway corridor.
 
----
+This behaviour is plausible:
 
-## 38. Safety Defects
+> Fast Curvy remains strongly time-oriented but may choose a more attractive
+> local alternative where the time difference is small.
 
-The following findings should be treated as high-priority defects:
+However, the difference is not sufficiently frequent or substantial across the
+current test set to justify another user-facing profile.
 
-```text
-routing through prohibited motorcycle access
-routing against one-way restrictions
-routing through impassable barriers
-unexpected unsuitable unpaved routing
-unsafe or clearly invalid route geometry
-```
+Current decision:
 
-A route being insufficiently curvy is a tuning issue.
+    retain as internal calibration level
+    do not include in initial user-facing release
 
-A route violating legal or physical constraints is a defect.
 
----
+## 24. Curvy vs. Very Curvy
 
-## 39. Calibration Log
+Curvy and Very Curvy produce reproducible differences.
 
-Major calibration changes should be documented.
+On many routes these are relatively small local deviations.
 
-Example:
+On some routes the difference is much stronger.
 
-```text
-2026-08-20
+Bern -> Luzern is the clearest current example, with substantially different
+route alternatives and relatively little overlap.
 
-Changed:
-Very Curvy motorway cost 5.0 → 6.0
+Biel/Bienne -> Rotkreuz also demonstrates meaningful differences over part of
+the route.
 
-Reason:
-Motorway remained dominant on Bern → Luzern.
+Current decision:
 
-Observed result:
-Motorway share reduced significantly.
-No material residential-road increase.
-```
+    retain Curvy
+    retain Very Curvy
+    include both as initial release candidates
 
-This may later be maintained in:
 
-```text
-docs/calibration-log.md
-```
+## 25. Curvy vs. Curvy Hilly
 
-or in the changelog.
+Across most current test routes:
 
----
+    Curvy == Curvy Hilly
 
-## 40. Test Automation
+or the difference is very small.
 
-The project should aim to automate:
+Fribourg -> Altdorf produced a difference over only a small fraction of the
+journey.
 
-```text
-profile generation
-BRouter route calculation
-metric extraction
-baseline comparison
-regression reporting
-```
+This supports the hypothesis that Curviness and Hilliness are strongly
+correlated in the road networks currently tested.
 
-Manual work should focus on:
+Curvy already tends to prefer many of the secondary, tertiary and
+topographically varied roads that a Hilly preference would favour.
 
-```text
-visual inspection
-subjective quality
-real-world riding
-```
+Current decision:
 
----
+    retain Hilliness in the internal model
+    retain Hilly presets for experimentation
+    do not include a separate Hilly profile in the initial release
 
-## 41. Test Tooling Architecture
 
-A possible future structure is:
+## 26. Curvy Very Hilly
 
-```text
-tests/
-├── routes/
-│   ├── ch-biel-neuchatel.yaml
-│   ├── ch-bern-luzern.yaml
-│   ├── ch-thun-andermatt.yaml
-│   ├── ch-zurich-davos.yaml
-│   └── ch-aigle-martigny.yaml
-│
-├── baseline/
-│
-└── reports/
+Curvy Very Hilly remains useful as an experimental extreme.
 
-tools/
-├── generate_profiles.py
-├── run_tests.py
-└── compare_results.py
-```
+It helps determine whether stronger topographical weighting creates meaningful
+behaviour.
 
-The exact tooling language is not normative.
+Current testing does not demonstrate sufficient independent user value to
+justify its inclusion in the initial release.
 
-Python is a reasonable default because the required automation is straightforward and portable.
+Current decision:
 
----
+    retain as experimental profile
+    do not include in initial user-facing release
 
-## 42. Continuous Integration
 
-Once local testing is stable, GitHub Actions may run:
+## 27. Current Profile Decision
 
-```text
-profile-generation validation
-syntax checks
-smoke tests
-regression guards
-```
+The current initial release candidates are:
 
-Full route testing should only be added to CI if BRouter execution and routing data can be made reproducible and reasonably lightweight.
+    moto-fast
+    moto-curvy
+    moto-very-curvy
 
----
+Experimental and calibration profiles remain:
 
-## 43. Pull Request Expectations
+    moto-fast-curvy
+    moto-curvy-hilly
+    moto-curvy-very-hilly
 
-A routing-behaviour change should ideally include:
+The experimental profiles should not be removed from the development model
+merely because they are not released to users.
 
-* explanation of the intended behaviour change
-* changed specification or routing model where required
-* test results
-* comparison against baseline
-* screenshots or route plots for major behavioural changes where useful
+They remain useful for:
 
----
+- calibration
+- regression analysis
+- future model research
+- evaluating whether additional user profiles become useful later
 
-## 44. Acceptance Criteria for v0.1
 
-The first usable release should satisfy all of the following:
+## 28. Why Three User Profiles
 
-```text
-All generated profiles load successfully.
+The current three-profile set provides a simple and understandable progression:
 
-All smoke-test routes calculate successfully.
+    Fast
+      |
+      v
+    Curvy
+      |
+      v
+    Very Curvy
 
-No standard profile uses unsuitable unpaved roads.
+Fast prioritises travel efficiency.
 
-Curvy profiles do not systematically zig-zag through residential areas.
+Curvy accepts moderate additional travel cost for motorcycle-oriented road
+character.
 
-Motorway usage generally decreases with increasing curviness.
+Very Curvy accepts a stronger trade-off and can select substantially different
+alternatives where the road network provides them.
 
-Secondary and tertiary road usage generally increases with curviness where alternatives exist.
+The distinction can be explained to a rider without exposing BRouter cost
+parameters.
 
-Curvy Hilly produces a measurable terrain difference on at least one suitable reference route.
 
-Curvy Hilly does not change the configured curviness level.
+## 29. Hilliness Decision
 
-No tested profile shows unexplained routing loops.
+Hilliness remains a valid conceptual dimension.
 
-No known access or one-way violations remain.
-```
+Its absence from the initial user-facing profile set does not mean the concept
+has been rejected.
 
----
+Instead, current testing indicates that:
 
-## 45. What Tests Must Not Optimise For
+1. Curviness already captures much of the same real-world road network.
+2. Separate Hilly profiles rarely produce meaningfully different routes.
+3. Adding such profiles would increase user choice without currently providing
+   equivalent user value.
 
-The test process must not accidentally redefine the project objective as:
+The parameter therefore remains available for future development.
 
-```text
-maximum number of bends
-maximum number of road-class changes
-maximum elevation gain
-minimum motorway percentage
-maximum route length
-```
 
-The target remains:
+## 30. Profile Reduction as a Positive Result
 
-> enjoyable, sensible, predictable motorcycle routing.
+The project deliberately began with a broader parameter space.
 
-Metrics support this goal. They do not replace it.
+Calibration was used to determine which combinations provide actual user
+value.
 
----
+Reducing six development presets to three user-facing profiles is therefore a
+successful calibration result rather than a loss of functionality.
 
-## 46. Initial Testing Workflow
+The internal model remains richer than the public interface.
 
-For each routing-model change:
 
-```text
-1. Update specification or routing model if required.
+## 31. Future Validation
 
-2. Generate all profiles.
+The current calibration set is heavily based on Switzerland.
 
-3. Run profile validation.
+Before declaring the routing model broadly stable, additional validation should
+include geographically different road networks.
 
-4. Run smoke tests.
+Useful future regions include:
 
-5. Run the full reference-route suite.
+- Jura
+- Black Forest
+- Vosges
+- alpine regions outside Switzerland
+- flatter rural areas
+- regions with different OpenStreetMap tagging practices
 
-6. Compare results against the current baseline.
+The objective is to verify that current behaviour generalises beyond Swiss
+geography and mapping conventions.
 
-7. Inspect flagged routes visually.
 
-8. Accept, adjust, or revert the change.
+## 32. Future Automated Comparison
 
-9. Update the baseline only after the new behaviour is intentionally accepted.
-```
+Current visual comparison is highly valuable but partly manual.
 
----
+Future tooling may automatically compare generated routes using metrics such
+as:
 
-## 47. v0.1 Testing Rule
+- shared route percentage
+- unique route percentage
+- distance difference
+- travel-time difference
+- ascent difference
+- motorway share
+- road-class distribution
+- geographic corridor similarity
 
-A routing change should not be considered an improvement merely because one route looks better.
+Such metrics should complement rather than replace visual evaluation.
 
-It should improve the intended behaviour across representative routes without introducing unacceptable regressions elsewhere.
 
+## 33. Route Similarity
+
+A particularly useful future metric would quantify how much two profiles
+actually share the same road geometry.
+
+For example:
+
+    Fast vs Curvy
+        35% shared
+
+    Curvy vs Very Curvy
+        82% shared
+
+This would provide a more objective basis for deciding whether two profiles
+are meaningfully different.
+
+Care must be taken with GPS geometry and parallel carriageways, which can make
+simple coordinate comparison misleading.
+
+
+## 34. Future Regression Baselines
+
+Once the first release is stable, selected route results should become formal
+regression baselines.
+
+A future model change could then report:
+
+- unchanged route
+- small deviation
+- major corridor change
+- distance delta
+- time delta
+- ascent delta
+
+Major changes should be reviewed before modifying a released routing model.
+
+
+## 35. Release Validation
+
+Before an initial release, the following should be true:
+
+- all generated profiles pass smoke tests
+- Fast produces plausible efficient routes
+- Curvy produces meaningful alternatives where available
+- Very Curvy demonstrates a stronger but still plausible preference
+- motorways remain available unless explicitly disabled
+- residential and service-road routing remains conservative
+- constrained routes do not produce artificial detours
+- experimental profiles remain available for calibration
+- documentation reflects the actual model behaviour
+- generated release profiles work with BRouter and OsmAnd on Android
+
+
+## 36. Current Testing Status
+
+The current model has reached a point where the primary routing concepts are
+considered plausible.
+
+Testing has provided evidence for:
+
+- a meaningful Fast profile
+- a meaningful Curvy profile
+- a distinct Very Curvy profile
+- insufficient user-facing differentiation for Fast Curvy
+- insufficient user-facing differentiation for Hilliness
+- correct handling of situations where geography limits route choice
+- the importance of distinguishing local route behaviour from complete
+  end-to-end route behaviour
+
+The next phase should focus on release consolidation and tooling rather than
+continued parameter tuning without new evidence.

@@ -1,0 +1,15 @@
+name: Test Curvy
+
+segments:
+  - from:
+      name: Lausanne
+      lon: 6.6323
+      lat: 46.5197
+
+    to:
+      name: Thun
+      lon: 7.6292
+      lat: 46.7571
+
+    routing:
+      character: curvy

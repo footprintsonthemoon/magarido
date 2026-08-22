@@ -1,0 +1,15 @@
+name: Bern Luzern Curvy No Motorway
+
+segments:
+  - from:
+      name: Bern
+      lon: 7.4474
+      lat: 46.9480
+    to:
+      name: Luzern
+      lon: 8.3093
+      lat: 47.0502
+    routing:
+      character: curvy
+      constraints:
+        avoid_motorways: true

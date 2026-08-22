@@ -1,0 +1,17 @@
+name: Test Hills Biel Neuchatel 1
+
+segments:
+  - from:
+      name: Biel
+      lon: 7.2468
+      lat: 47.1368
+
+    to:
+      name: Neuchatel
+      lon: 6.9293
+      lat: 46.9896
+
+    routing:
+      character: curvy
+      preferences:
+        prefer_hills: true

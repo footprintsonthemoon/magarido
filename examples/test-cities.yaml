@@ -1,0 +1,15 @@
+name: Test Cities
+
+segments:
+  - from:
+      name: Fribourg
+      lon: 7.1513
+      lat: 46.8065
+
+    to:
+      name: Thun
+      lon: 7.6292
+      lat: 46.7571
+
+    routing:
+      character: curvy

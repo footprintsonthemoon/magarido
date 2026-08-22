@@ -1,0 +1,15 @@
+name: Test Cities Biel Thun
+
+segments:
+  - from:
+      name: Biel
+      lon: 7.2468
+      lat: 47.1368
+
+    to:
+      name: Thun
+      lon: 7.6292
+      lat: 46.7571
+
+    routing:
+      character: curvy

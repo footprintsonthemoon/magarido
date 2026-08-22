@@ -1100,3 +1100,67 @@ This separation is intentional.
 The public interface should remain simple while the internal model retains
 sufficient parameter space for calibration, experimentation and future
 development.
+
+## Time-oriented routing and vehicle model
+
+The routing model shall separate three concepts:
+
+1. routing character,
+2. routing constraints,
+3. vehicle characteristics.
+
+### Fast routing
+
+The Fast routing character shall primarily optimise expected travel time.
+
+It shall not explicitly prefer motorways or major roads. Such roads shall only
+be selected when their expected travel time makes them preferable.
+
+Adding a routing constraint must not produce a materially faster route than
+the equivalent unconstrained Fast route under the same vehicle model.
+
+### Curvy routing
+
+Curvy routing shall use the same time-oriented foundation as Fast while adding
+a moderate preference for roads with desirable motorcycle-routing
+characteristics.
+
+### Very Curvy routing
+
+Very Curvy shall use the same time-oriented foundation with a stronger
+road-character preference than Curvy.
+
+The difference between Curvy and Very Curvy shall therefore represent the
+amount of additional travel-time cost the routing model is willing to accept
+in exchange for more desirable motorcycle roads.
+
+### Constraints
+
+Constraints are independent of routing character.
+
+Examples include:
+
+- avoid motorways,
+- avoid toll roads.
+
+A constraint limits or penalises possible routes but does not define the
+routing character itself.
+
+### Vehicle characteristics
+
+The architecture shall allow the time-oriented routing model to use
+motorcycle-specific vehicle characteristics.
+
+The internal representation may include parameters such as:
+
+- total vehicle/rider/luggage mass,
+- aerodynamic resistance,
+- rolling resistance,
+- target speed.
+
+A future user interface should expose meaningful motorcycle and rider
+properties rather than requiring users to understand low-level routing-engine
+parameters.
+
+Vehicle-specific routing is a future capability. The initial implementation
+uses a generic motorcycle model.

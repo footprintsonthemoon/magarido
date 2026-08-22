@@ -589,3 +589,122 @@ without requiring knowledge of the original development machine.
 
 Personal paths and local machine names must therefore not be required by the
 project documentation.
+
+## Kinematic routing experiment
+
+During development of segment-based routing, the original Fast cost model
+revealed an important limitation.
+
+The original model approximated travel-time preference through a custom
+speed-derived cost factor. On Bern -> Luzern this produced results whose
+reported travel times were difficult to interpret reliably.
+
+BRouter's KinematicModel was therefore evaluated as an alternative foundation
+for time-oriented motorcycle routing.
+
+### Reference test: Bern -> Luzern
+
+The initial KinematicModel test used parameters close to BRouter's car-vario
+profile, with a target speed of 120 km/h.
+
+Results:
+
+| Model | Distance | Time | Ascent | Cost |
+|---|---:|---:|---:|---:|
+| Kinematic Fast | 110.5 km | 74.2 min | 416 m | 126203 |
+| Kinematic Fast, avoid motorways | 84.2 km | 116.3 min | 873 m | 152114 |
+
+This satisfies an important invariant:
+
+    time(Fast) <= time(Fast + additional constraints)
+
+The unrestricted Fast route may be longer in distance while still being
+faster because it can use higher-speed roads.
+
+### Motorcycle parameter experiment
+
+A generic touring motorcycle model was then tested with:
+
+- total weight: 340 kg
+- rolling resistance force: 50 N
+- aerodynamic factor: 0.35
+- target speed: 120 km/h
+
+The remaining KinematicModel parameters were deliberately left unchanged
+during this experiment in order to change only a limited number of variables.
+
+#### Bern -> Luzern
+
+| Parameters | Distance | Time | Ascent | Cost |
+|---|---:|---:|---:|---:|
+| Car-like | 110.5 km | 74.2 min | 416 m | 126203 |
+| Motorcycle | 110.5 km | 68.9 min | 416 m | 121516 |
+
+#### Thun -> Andermatt
+
+| Parameters | Distance | Time | Ascent | Cost |
+|---|---:|---:|---:|---:|
+| Car-like | 119.3 km | 145.0 min | 2673 m | 197288 |
+| Motorcycle | 119.3 km | 128.0 min | 2673 m | 183699 |
+
+In both tests the selected route remained identical while travel-time and cost
+changed. The effect was larger on the alpine route.
+
+### Current conclusion
+
+KinematicModel is the preferred candidate for the new time-oriented routing
+foundation.
+
+The intended model is:
+
+    Fast
+        = minimise expected travel time
+
+    Curvy
+        = travel-time model
+        + moderate motorcycle road-character preference
+
+    Very Curvy
+        = travel-time model
+        + stronger motorcycle road-character preference
+
+Hard constraints such as avoiding motorways remain orthogonal to the routing
+character.
+
+The previous routing model remains in place until the KinematicModel-based
+profiles have been validated against the calibration route set.
+
+### Future vehicle model
+
+Vehicle characteristics should eventually be separated from routing
+intentions.
+
+A future planner or application may accept user-friendly inputs such as:
+
+- motorcycle type
+- motorcycle weight
+- rider weight
+- luggage weight
+- preferred/target speed
+
+These inputs can be translated internally into KinematicModel parameters.
+
+Users should not normally be required to enter low-level parameters such as
+aerodynamic or rolling-resistance coefficients directly.
+
+This would allow routing to depend on three independent dimensions:
+
+    route segment
+        +
+    routing intention
+        +
+    motorcycle characteristics
+        |
+        v
+    BRouter profile / parameters
+        |
+        v
+    route
+
+This vehicle-specific capability is a future requirement and is not part of
+the current profile calibration.

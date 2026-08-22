@@ -1,0 +1,17 @@
+name: Test Hills 1
+
+segments:
+  - from:
+      name: Fribourg
+      lon: 7.1513
+      lat: 46.8065
+
+    to:
+      name: Altdorf
+      lon: 8.6444
+      lat: 46.8804
+
+    routing:
+      character: curvy
+      preferences:
+        prefer_hills: true

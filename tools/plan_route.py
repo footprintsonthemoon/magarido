@@ -28,6 +28,15 @@ ROOT = Path(__file__).resolve().parents[1]
 BROUTER_URL = "http://localhost:17777/brouter"
 OUTPUT_DIR = ROOT / "output"
 
+HILLS_TIME_FACTOR = {
+    "moderate": 1.35,
+    "strong": 1.70,
+}
+
+HILLS_MIN_ASCENT_GAIN_M = 100
+HILLS_MIN_ASCENT_GAIN_RATIO = 0.10
+HILLS_MIN_DENSITY_FACTOR = 1.10
+
 
 def slugify(value: str) -> str:
     value = value.lower()
@@ -35,12 +44,161 @@ def slugify(value: str) -> str:
     return value.strip("-")
 
 
-def route_segment(segment: dict) -> tuple[dict, str]:
-    """
-    Compile the routing intention for one segment and calculate
-    the route using the local BRouter server.
-    """
+def first_feature(data: dict) -> dict:
+    features = data.get("features", [])
 
+    if not features:
+        raise ValueError("BRouter returned no features")
+
+    return features[0]
+
+
+def metric(properties: dict, key: str, default=0.0) -> float:
+    try:
+        return float(properties.get(key, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def route_with_alternative(
+    start: dict,
+    end: dict,
+    profile: str,
+    alternative_idx: int,
+) -> dict:
+    params = {
+        "lonlats": (
+            f"{start['lon']},{start['lat']}|"
+            f"{end['lon']},{end['lat']}"
+        ),
+        "profile": profile,
+        "alternativeidx": str(alternative_idx),
+        "format": "geojson",
+    }
+
+    url = f"{BROUTER_URL}?{urllib.parse.urlencode(params)}"
+
+    with urllib.request.urlopen(
+        url,
+        timeout=120,
+    ) as response:
+        return json.load(response)
+
+
+def candidate_metrics(data: dict) -> dict:
+    feature = first_feature(data)
+    properties = feature.get("properties", {})
+
+    distance_m = metric(
+        properties,
+        "track-length",
+    )
+
+    time_s = metric(
+        properties,
+        "total-time",
+    )
+
+    ascent_m = metric(
+        properties,
+        "filtered ascend",
+    )
+
+    distance_km = distance_m / 1000
+
+    ascent_density = (
+        ascent_m / distance_km
+        if distance_km > 0
+        else 0
+    )
+
+    return {
+        "distance_m": distance_m,
+        "time_s": time_s,
+        "ascent_m": ascent_m,
+        "ascent_density": ascent_density,
+    }
+
+
+def select_hill_alternative(
+    candidates: list[dict],
+    hills: str,
+) -> dict:
+    baseline = candidates[0]
+
+    if hills == "off":
+        return baseline
+
+    baseline_metrics = baseline["metrics"]
+
+    max_time = (
+        baseline_metrics["time_s"]
+        * HILLS_TIME_FACTOR[hills]
+    )
+
+    minimum_gain = max(
+        HILLS_MIN_ASCENT_GAIN_M,
+        baseline_metrics["ascent_m"]
+        * HILLS_MIN_ASCENT_GAIN_RATIO,
+    )
+
+    baseline_density = baseline_metrics[
+        "ascent_density"
+    ]
+
+    eligible = []
+
+    for candidate in candidates[1:]:
+        metrics = candidate["metrics"]
+
+        ascent_gain = (
+            metrics["ascent_m"]
+            - baseline_metrics["ascent_m"]
+        )
+
+        if metrics["time_s"] > max_time:
+            continue
+
+        if ascent_gain < minimum_gain:
+            continue
+
+        if (
+            metrics["ascent_density"]
+            < baseline_density
+            * HILLS_MIN_DENSITY_FACTOR
+        ):
+            continue
+
+        time_penalty_min = (
+            metrics["time_s"]
+            - baseline_metrics["time_s"]
+        ) / 60
+
+        if time_penalty_min <= 0:
+            hill_score = float("inf")
+        else:
+            hill_score = (
+                ascent_gain
+                / time_penalty_min
+            )
+
+        candidate = dict(candidate)
+        candidate["hill_score"] = hill_score
+        eligible.append(candidate)
+
+    if not eligible:
+        return baseline
+
+    return max(
+        eligible,
+        key=lambda candidate:
+            candidate["hill_score"],
+    )
+
+
+def route_segment(
+    segment: dict,
+) -> tuple[dict, str, int]:
     start = segment["from"]
     end = segment["to"]
 
@@ -52,73 +210,88 @@ def route_segment(segment: dict) -> tuple[dict, str]:
         intention
     )
 
-    params = {
-        "lonlats": (
-            f"{start['lon']},{start['lat']}|"
-            f"{end['lon']},{end['lat']}"
-        ),
-        "profile": profile,
-        "alternativeidx": "0",
-        "format": "geojson",
-    }
+    hills = intention[
+        "preferences"
+    ]["hills"]
 
-    url = (
-        f"{BROUTER_URL}?"
-        f"{urllib.parse.urlencode(params)}"
-    )
-
-    try:
-        with urllib.request.urlopen(
-            url,
-            timeout=120,
-        ) as response:
-            return json.load(response), profile
-
-    except HTTPError as exc:
-        body = exc.read().decode(
-            "utf-8",
-            errors="replace",
-        )
-
-        raise RuntimeError(
-            "\n"
-            "BRouter failed for segment:\n"
-            f"  {start['name']} -> {end['name']}\n"
-            f"  profile: {profile}\n"
-            f"  HTTP: {exc.code} {exc.reason}\n"
-            f"  response: {body}\n"
-        ) from exc
-
-
-def first_feature(data: dict) -> dict:
-    features = data.get(
-        "features",
-        [],
-    )
-
-    if not features:
-        raise ValueError(
-            "BRouter returned no features"
-        )
-
-    return features[0]
-
-
-def metric(
-    properties: dict,
-    key: str,
-    default=0.0,
-) -> float:
-    try:
-        return float(
-            properties.get(
-                key,
-                default,
+    if hills == "off":
+        try:
+            data = route_with_alternative(
+                start,
+                end,
+                profile,
+                0,
             )
+
+            return data, profile, 0
+
+        except HTTPError as exc:
+            body = exc.read().decode(
+                "utf-8",
+                errors="replace",
+            )
+
+            raise RuntimeError(
+                "\n"
+                "BRouter failed for segment:\n"
+                f"  {start['name']} -> {end['name']}\n"
+                f"  profile: {profile}\n"
+                f"  HTTP: {exc.code} {exc.reason}\n"
+                f"  response: {body}\n"
+            ) from exc
+
+    candidates = []
+
+    for alternative_idx in range(4):
+        try:
+            data = route_with_alternative(
+                start,
+                end,
+                profile,
+                alternative_idx,
+            )
+
+        except HTTPError:
+            continue
+
+        except Exception:
+            continue
+
+        candidates.append(
+            {
+                "alternative_idx": alternative_idx,
+                "data": data,
+                "metrics": candidate_metrics(data),
+            }
         )
 
-    except (TypeError, ValueError):
-        return float(default)
+    if not candidates:
+        raise RuntimeError(
+            "BRouter returned no usable alternatives for "
+            f"{start['name']} -> {end['name']}"
+        )
+
+    candidates.sort(
+        key=lambda candidate:
+            candidate["alternative_idx"]
+    )
+
+    if candidates[0]["alternative_idx"] != 0:
+        raise RuntimeError(
+            "BRouter did not return alternative 0 for "
+            f"{start['name']} -> {end['name']}"
+        )
+
+    selected = select_hill_alternative(
+        candidates,
+        hills,
+    )
+
+    return (
+        selected["data"],
+        profile,
+        selected["alternative_idx"],
+    )
 
 
 def extract_segment_result(
@@ -126,20 +299,11 @@ def extract_segment_result(
     segment: dict,
     data: dict,
     compiled_profile: str,
+    selected_alternative: int,
 ) -> dict:
-    feature = first_feature(
-        data
-    )
-
-    properties = feature.get(
-        "properties",
-        {},
-    )
-
-    geometry = feature.get(
-        "geometry",
-        {},
-    )
+    feature = first_feature(data)
+    properties = feature.get("properties", {})
+    geometry = feature.get("geometry", {})
 
     if geometry.get("type") != "LineString":
         raise ValueError(
@@ -161,24 +325,21 @@ def extract_segment_result(
         "index": index,
         "segment": segment,
         "compiled_profile": compiled_profile,
+        "selected_alternative": selected_alternative,
         "data": data,
         "coordinates": coordinates,
-
         "distance_m": metric(
             properties,
             "track-length",
         ),
-
         "time_s": metric(
             properties,
             "total-time",
         ),
-
         "ascent_m": metric(
             properties,
             "filtered ascend",
         ),
-
         "cost": metric(
             properties,
             "cost",
@@ -189,24 +350,13 @@ def extract_segment_result(
 def merge_coordinates(
     results: list[dict],
 ) -> list[list[float]]:
-    """
-    Merge all planner segments into one continuous coordinate list.
-
-    Consecutive BRouter segments normally share their boundary
-    coordinate. That duplicate is removed.
-    """
-
     merged = []
 
     for result in results:
-        coordinates = result[
-            "coordinates"
-        ]
+        coordinates = result["coordinates"]
 
         if not merged:
-            merged.extend(
-                coordinates
-            )
+            merged.extend(coordinates)
             continue
 
         if (
@@ -216,11 +366,8 @@ def merge_coordinates(
             merged.extend(
                 coordinates[1:]
             )
-
         else:
-            merged.extend(
-                coordinates
-            )
+            merged.extend(coordinates)
 
     return merged
 
@@ -229,16 +376,7 @@ def build_geojson(
     tour: dict,
     results: list[dict],
 ) -> dict:
-    """
-    Build the development GeoJSON representation.
-
-    Unlike GPX, GeoJSON deliberately retains the complete planner
-    segment metadata.
-    """
-
-    merged = merge_coordinates(
-        results
-    )
+    merged = merge_coordinates(results)
 
     total_distance = sum(
         result["distance_m"]
@@ -263,38 +401,26 @@ def build_geojson(
     segment_summary = []
 
     for result in results:
-        segment = result[
-            "segment"
-        ]
+        segment = result["segment"]
 
         segment_summary.append(
             {
-                "index":
-                    result["index"] + 1,
-
-                "from":
-                    segment["from"]["name"],
-
-                "to":
-                    segment["to"]["name"],
-
-                "routing":
-                    normalize_intention(
-                        segment["routing"]
-                    ),
-
+                "index": result["index"] + 1,
+                "from": segment["from"]["name"],
+                "to": segment["to"]["name"],
+                "routing": normalize_intention(
+                    segment["routing"]
+                ),
                 "compiled_profile":
                     result["compiled_profile"],
-
+                "selected_alternative":
+                    result["selected_alternative"],
                 "distance_m":
                     result["distance_m"],
-
                 "time_s":
                     result["time_s"],
-
                 "ascent_m":
                     result["ascent_m"],
-
                 "cost":
                     result["cost"],
             }
@@ -302,31 +428,17 @@ def build_geojson(
 
     return {
         "type": "FeatureCollection",
-
         "features": [
             {
                 "type": "Feature",
-
                 "properties": {
-                    "name":
-                        tour["name"],
-
-                    "track-length":
-                        total_distance,
-
-                    "total-time":
-                        total_time,
-
-                    "filtered ascend":
-                        total_ascent,
-
-                    "cost":
-                        total_cost,
-
-                    "segments":
-                        segment_summary,
+                    "name": tour["name"],
+                    "track-length": total_distance,
+                    "total-time": total_time,
+                    "filtered ascend": total_ascent,
+                    "cost": total_cost,
+                    "segments": segment_summary,
                 },
-
                 "geometry": {
                     "type": "LineString",
                     "coordinates": merged,
@@ -344,12 +456,8 @@ def add_gpx_waypoint(
         parent,
         "wpt",
         {
-            "lat": str(
-                point["lat"]
-            ),
-            "lon": str(
-                point["lon"]
-            ),
+            "lat": str(point["lat"]),
+            "lon": str(point["lon"]),
         },
     )
 
@@ -358,34 +466,13 @@ def add_gpx_waypoint(
         "name",
     )
 
-    name.text = point[
-        "name"
-    ]
+    name.text = point["name"]
 
 
 def build_gpx(
     tour: dict,
     results: list[dict],
 ) -> ET.ElementTree:
-    """
-    Build an OsmAnd-friendly GPX 1.1 file.
-
-    Important design decision:
-
-        planner segments != GPX track segments
-
-    The planner may calculate every section independently with a
-    different routing intention.
-
-    For navigation, however, the complete tour is exported as ONE
-    continuous GPX track containing ONE <trkseg>.
-
-    Segment boundaries remain visible as GPX waypoints.
-
-    Detailed per-segment routing metadata remains available in the
-    corresponding GeoJSON output.
-    """
-
     gpx = ET.Element(
         "gpx",
         {
@@ -397,30 +484,18 @@ def build_gpx(
         },
     )
 
-    #
-    # Tour waypoints
-    #
-
-    first_segment = tour[
-        "segments"
-    ][0]
+    first_segment = tour["segments"][0]
 
     add_gpx_waypoint(
         gpx,
         first_segment["from"],
     )
 
-    for segment in tour[
-        "segments"
-    ]:
+    for segment in tour["segments"]:
         add_gpx_waypoint(
             gpx,
             segment["to"],
         )
-
-    #
-    # One track for the complete tour
-    #
 
     track = ET.SubElement(
         gpx,
@@ -432,22 +507,14 @@ def build_gpx(
         "name",
     )
 
-    track_name.text = tour[
-        "name"
-    ]
-
-    #
-    # One track segment for the complete tour
-    #
+    track_name.text = tour["name"]
 
     track_segment = ET.SubElement(
         track,
         "trkseg",
     )
 
-    merged = merge_coordinates(
-        results
-    )
+    merged = merge_coordinates(results)
 
     for coordinate in merged:
         lon = coordinate[0]
@@ -462,10 +529,6 @@ def build_gpx(
             },
         )
 
-        #
-        # Preserve elevation if supplied by BRouter.
-        #
-
         if len(coordinate) >= 3:
             elevation = ET.SubElement(
                 track_point,
@@ -476,28 +539,21 @@ def build_gpx(
                 coordinate[2]
             )
 
-    return ET.ElementTree(
-        gpx
-    )
+    return ET.ElementTree(gpx)
 
 
 def indent_xml(
     element,
     level=0,
 ):
-    indent = (
-        "\n"
-        + level * "  "
-    )
+    indent = "\n" + level * "  "
 
     if len(element):
         if (
             not element.text
             or not element.text.strip()
         ):
-            element.text = (
-                indent + "  "
-            )
+            element.text = indent + "  "
 
         for child in element:
             indent_xml(
@@ -548,13 +604,8 @@ def validate_point(
             )
 
     try:
-        float(
-            point["lat"]
-        )
-
-        float(
-            point["lon"]
-        )
+        float(point["lat"])
+        float(point["lon"])
 
     except (TypeError, ValueError):
         raise ValueError(
@@ -574,16 +625,12 @@ def validate_tour(
             "Tour definition must be a mapping"
         )
 
-    if not tour.get(
-        "name"
-    ):
+    if not tour.get("name"):
         raise ValueError(
             "Tour must define a name"
         )
 
-    segments = tour.get(
-        "segments"
-    )
+    segments = tour.get("segments")
 
     if (
         not isinstance(
@@ -599,9 +646,7 @@ def validate_tour(
     for index, segment in enumerate(
         segments
     ):
-        segment_number = (
-            index + 1
-        )
+        segment_number = index + 1
 
         if not isinstance(
             segment,
@@ -639,30 +684,18 @@ def validate_tour(
             segment["routing"]
         )
 
-    #
-    # Phase 2 currently requires a continuous waypoint chain.
-    #
-
     for index in range(
         len(segments) - 1
     ):
-        current_end = (
-            segments[index][
-                "to"
-            ]
-        )
-
+        current_end = segments[index]["to"]
         next_start = (
-            segments[index + 1][
-                "from"
-            ]
+            segments[index + 1]["from"]
         )
 
         if (
             current_end["lat"]
             != next_start["lat"]
-            or
-            current_end["lon"]
+            or current_end["lon"]
             != next_start["lon"]
         ):
             raise ValueError(
@@ -682,13 +715,9 @@ def load_tour(
         "r",
         encoding="utf-8",
     ) as handle:
-        tour = yaml.safe_load(
-            handle
-        )
+        tour = yaml.safe_load(handle)
 
-    validate_tour(
-        tour
-    )
+    validate_tour(tour)
 
     return tour
 
@@ -701,13 +730,14 @@ def print_routing_intention(
         f"{routing['character']}"
     )
 
-    prefer_hills = routing[
+    hills = routing[
         "preferences"
-    ]["prefer_hills"]
+    ]["hills"]
 
-    if prefer_hills:
+    if hills != "off":
         print(
-            "    prefer hills:    yes"
+            f"    hills:           "
+            f"{hills}"
         )
 
     if routing[
@@ -735,9 +765,7 @@ def print_routing_intention(
 def print_result(
     result: dict,
 ):
-    segment = result[
-        "segment"
-    ]
+    segment = result["segment"]
 
     routing = normalize_intention(
         segment["routing"]
@@ -749,14 +777,18 @@ def print_result(
         f"{segment['to']['name']}"
     )
 
-    print_routing_intention(
-        routing
-    )
+    print_routing_intention(routing)
 
     print(
         f"    compiled profile: "
         f"{result['compiled_profile']}"
     )
+
+    if result["selected_alternative"]:
+        print(
+            f"    BRouter alt:      "
+            f"{result['selected_alternative']}"
+        )
 
     print(
         f"    distance:         "
@@ -792,9 +824,7 @@ def main():
 
     args = parser.parse_args()
 
-    tour_path = (
-        args.tour.resolve()
-    )
+    tour_path = args.tour.resolve()
 
     if not tour_path.exists():
         raise SystemExit(
@@ -802,25 +832,11 @@ def main():
             f"{tour_path}"
         )
 
-    tour = load_tour(
-        tour_path
-    )
+    tour = load_tour(tour_path)
 
     print()
-    print(
-        f"Tour: {tour['name']}"
-    )
-
-    print(
-        "="
-        * (
-            6
-            + len(
-                tour["name"]
-            )
-        )
-    )
-
+    print(f"Tour: {tour['name']}")
+    print("=" * (6 + len(tour["name"])))
     print()
 
     results = []
@@ -828,28 +844,23 @@ def main():
     for index, segment in enumerate(
         tour["segments"]
     ):
-        data, compiled_profile = (
-            route_segment(
-                segment
-            )
+        (
+            data,
+            compiled_profile,
+            selected_alternative,
+        ) = route_segment(segment)
+
+        result = extract_segment_result(
+            index,
+            segment,
+            data,
+            compiled_profile,
+            selected_alternative,
         )
 
-        result = (
-            extract_segment_result(
-                index,
-                segment,
-                data,
-                compiled_profile,
-            )
-        )
+        results.append(result)
 
-        results.append(
-            result
-        )
-
-        print_result(
-            result
-        )
+        print_result(result)
 
     total_distance = sum(
         result["distance_m"]
@@ -871,34 +882,24 @@ def main():
         for result in results
     )
 
-    print(
-        "Total"
-    )
-
-    print(
-        "-----"
-    )
-
+    print("Total")
+    print("-----")
     print(
         f"distance: "
         f"{total_distance / 1000:.1f} km"
     )
-
     print(
         f"time:     "
         f"{total_time / 60:.1f} min"
     )
-
     print(
         f"ascent:   "
         f"{total_ascent:.0f} m"
     )
-
     print(
         f"cost:     "
         f"{total_cost:.0f}"
     )
-
     print()
 
     OUTPUT_DIR.mkdir(
@@ -906,9 +907,7 @@ def main():
         exist_ok=True,
     )
 
-    slug = slugify(
-        tour["name"]
-    )
+    slug = slugify(tour["name"])
 
     geojson_file = (
         OUTPUT_DIR
@@ -919,10 +918,6 @@ def main():
         OUTPUT_DIR
         / f"{slug}.gpx"
     )
-
-    #
-    # Development / analysis output
-    #
 
     geojson = build_geojson(
         tour,
@@ -938,10 +933,6 @@ def main():
         + "\n",
         encoding="utf-8",
     )
-
-    #
-    # OsmAnd / navigation output
-    #
 
     gpx = build_gpx(
         tour,

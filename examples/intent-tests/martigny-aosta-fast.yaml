@@ -1,0 +1,13 @@
+name: Martigny Aosta Fast
+
+segments:
+  - from:
+      name: Martigny
+      lon: 7.0730
+      lat: 46.1028
+    to:
+      name: Aosta
+      lon: 7.3201
+      lat: 45.7370
+    routing:
+      character: fast

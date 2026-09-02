@@ -3,18 +3,41 @@
 #
 # Canonical source profile.
 #
-# User-facing profiles are generated from this file and config/presets.yaml.
+# This file is the single source for:
 #
-# Calibration version:
-#   - motorcycle access
-#   - one-way restrictions
-#   - turn restrictions
-#   - barriers
-#   - time-aware base routing
-#   - road-character / curviness preference
-#   - surface handling
-#   - town / urban penalty
-#   - independent relative hilliness preference
+#   - static development profiles
+#   - static release profiles
+#   - dynamically compiled routing intentions
+#
+# Routing dimensions:
+#
+#   curviness
+#       0 = fast
+#       1 = fast-curvy / experimental
+#       2 = curvy
+#       3 = very-curvy
+#
+#   hilliness
+#       0 = neutral
+#       1 = prefer hills
+#       2 = experimental stronger hill preference
+#
+# Independent constraints/options:
+#
+#   avoid_motorways
+#   avoid_toll
+#   allow_unpaved
+#   allow_ferries
+#
+# Design principle:
+#
+#   time-aware base cost
+#        x
+#   motorcycle road character
+#        x
+#   contextual modifiers
+#
+# Hilliness remains an independent terrain preference.
 #
 
 ---context:global
@@ -22,31 +45,31 @@
 assign validForCars = true
 
 #
-# Primary routing parameters
+# ----------------------------------------------------------------------
+# PRIMARY ROUTING PARAMETERS
+# ----------------------------------------------------------------------
 #
 
 assign curviness = 0
-# 0 = fast
-# 1 = fast-curvy
-# 2 = curvy
-# 3 = very-curvy
-
 assign hilliness = 0
-# 0 = neutral
-# 1 = hilly
-# 2 = very-hilly
 
 #
-# Independent options
+# ----------------------------------------------------------------------
+# INDEPENDENT OPTIONS / CONSTRAINTS
+# ----------------------------------------------------------------------
 #
 
 assign avoid_motorways = false
 assign avoid_toll = false
+assign avoid_cities = false
+
 assign allow_unpaved = false
 assign allow_ferries = true
 
 #
-# BRouter behaviour
+# ----------------------------------------------------------------------
+# BROUTER BEHAVIOUR
+# ----------------------------------------------------------------------
 #
 
 assign considerTurnRestrictions = true
@@ -61,7 +84,18 @@ assign turnInstructionMode = 3
 assign turnInstructionRoundabouts = true
 
 #
-# Hilliness model
+# ----------------------------------------------------------------------
+# ELEVATION / HILLINESS
+# ----------------------------------------------------------------------
+#
+# Hilliness is deliberately independent from curviness.
+#
+# The current public planner API maps:
+#
+#   prefer_hills = false -> hilliness 0
+#   prefer_hills = true  -> hilliness 1
+#
+# Level 2 remains available internally for experimentation.
 #
 
 assign uphillcost = 0
@@ -89,14 +123,18 @@ assign elevationbufferreduce =
 ---context:way
 
 #
-# Classifier constants
+# ----------------------------------------------------------------------
+# CLASSIFIER CONSTANTS
+# ----------------------------------------------------------------------
 #
 
 assign classifier_none = 1
 assign classifier_ferry = 2
 
 #
-# Road classifications
+# ----------------------------------------------------------------------
+# ROAD CLASSIFICATION
+# ----------------------------------------------------------------------
 #
 
 assign is_motorway =
@@ -162,7 +200,21 @@ assign is_link =
     highway=motorway_link|trunk_link|primary_link|secondary_link|tertiary_link
 
 #
-# Motorcycle access
+# ----------------------------------------------------------------------
+# MOTORCYCLE ACCESS
+# ----------------------------------------------------------------------
+#
+# Access precedence:
+#
+#   motorcycle
+#       ->
+#   motor_vehicle
+#       ->
+#   vehicle
+#       ->
+#   access
+#       ->
+#   implicit road default
 #
 
 assign default_motorcycle_access =
@@ -209,7 +261,9 @@ assign motorcycle_access_destination =
         motorcycle=destination
 
 #
-# One-way handling
+# ----------------------------------------------------------------------
+# ONE-WAY HANDLING
+# ----------------------------------------------------------------------
 #
 
 assign isbadoneway =
@@ -230,7 +284,9 @@ assign isgoodoneway =
         else oneway=yes|true|1
 
 #
-# Surface classification
+# ----------------------------------------------------------------------
+# SURFACE CLASSIFICATION
+# ----------------------------------------------------------------------
 #
 
 assign surface_is_paved =
@@ -252,7 +308,9 @@ assign track_is_unpaved =
         not track_is_paved
 
 #
-# Supported-road model
+# ----------------------------------------------------------------------
+# SUPPORTED ROAD MODEL
+# ----------------------------------------------------------------------
 #
 
 assign normal_road_supported =
@@ -300,7 +358,36 @@ assign way_is_usable =
         not isbadoneway
 
 #
-# Ferry handling
+# ----------------------------------------------------------------------
+# MOTORCYCLE-SPECIFIC TOLL HANDLING
+# ----------------------------------------------------------------------
+#
+# BRouter's current lookup table contains:
+#
+#   toll=yes|true
+#   toll:motorcycle=no
+#
+# It does NOT currently provide toll:motorcycle=yes as a usable lookup
+# value.
+#
+# Therefore:
+#
+#   toll:motorcycle=no
+#       explicitly exempts motorcycles
+#
+#   otherwise toll=yes/true
+#       is treated as a motorcycle toll
+#
+# This is intentionally conservative.
+#
+
+  assign motorcycle_toll =
+    and toll=yes
+        not toll:motorcycle=no
+#
+# ----------------------------------------------------------------------
+# FERRY HANDLING
+# ----------------------------------------------------------------------
 #
 
 assign initialclassifier =
@@ -316,7 +403,11 @@ assign initialcost =
     else 0
 
 #
-# Turn cost
+# ----------------------------------------------------------------------
+# TURN COST
+# ----------------------------------------------------------------------
+#
+# Junction turns are not equivalent to physical road curvature.
 #
 
 assign turncost =
@@ -328,6 +419,8 @@ assign turncost =
 # ----------------------------------------------------------------------
 # TIME-AWARE BASE MODEL
 # ----------------------------------------------------------------------
+#
+# Explicit OSM maxspeed values are converted into numeric routing speeds.
 #
 
 assign maxspeed_forward =
@@ -390,7 +483,11 @@ assign maxspeed_explicit =
     directional_maxspeed
 
 #
-# Implicit motorcycle travel-speed assumptions
+# ----------------------------------------------------------------------
+# IMPLICIT MOTORCYCLE SPEED
+# ----------------------------------------------------------------------
+#
+# These values are routing assumptions, not legal speed limits.
 #
 
 assign implicit_speed =
@@ -414,21 +511,25 @@ assign implicit_speed =
     10
 
 #
-# Surface speed limits
+# ----------------------------------------------------------------------
+# SURFACE SPEED LIMITS
+# ----------------------------------------------------------------------
 #
 
 assign surface_speed =
-    switch surface=                        999
-    switch surface=asphalt|paved|concrete  999
-    switch surface=paving_stones|sett       40
-    switch surface=cobblestone              30
-    switch surface=fine_gravel              25
-    switch surface=compacted                25
-    switch surface=gravel                   20
+    switch surface=                         999
+    switch surface=asphalt|paved|concrete   999
+    switch surface=paving_stones|sett        40
+    switch surface=cobblestone               30
+    switch surface=fine_gravel               25
+    switch surface=compacted                 25
+    switch surface=gravel                    20
     15
 
 #
-# Track speed limits
+# ----------------------------------------------------------------------
+# TRACK SPEED LIMITS
+# ----------------------------------------------------------------------
 #
 
 assign track_speed =
@@ -439,7 +540,9 @@ assign track_speed =
     10
 
 #
-# Effective speed
+# ----------------------------------------------------------------------
+# EFFECTIVE SPEED
+# ----------------------------------------------------------------------
 #
 
 assign selected_explicit_speed =
@@ -454,14 +557,20 @@ assign effective_speed =
         track_speed
 
 #
-# Time-equivalent base cost
+# ----------------------------------------------------------------------
+# TIME COST
+# ----------------------------------------------------------------------
 #
-# 120 km/h -> 1.00
-# 100 km/h -> 1.20
-#  80 km/h -> 1.50
-#  60 km/h -> 2.00
-#  50 km/h -> 2.40
-#  30 km/h -> 4.00
+# 120 km/h is the reference.
+#
+# Examples:
+#
+#   120 -> 1.00
+#   100 -> 1.20
+#    80 -> 1.50
+#    60 -> 2.00
+#    50 -> 2.40
+#    30 -> 4.00
 #
 
 assign time_cost =
@@ -475,12 +584,6 @@ assign time_cost =
 # ----------------------------------------------------------------------
 # MOTORCYCLE ROAD CHARACTER / CURVINESS
 # ----------------------------------------------------------------------
-#
-# Calibration:
-#
-# curviness=1 (Fast Curvy) is deliberately stronger than before.
-# It should accept a moderate time penalty for attractive secondary
-# and tertiary roads without behaving like the full Curvy profile.
 #
 
 assign motorway_character =
@@ -550,7 +653,7 @@ assign unclassified_character =
     0.94
 
 #
-# Local roads never become more attractive with increasing curviness.
+# Local roads never become attractive merely because curviness increases.
 #
 
 assign residential_character =
@@ -618,8 +721,13 @@ assign character_time_cost =
 
 #
 # ----------------------------------------------------------------------
-# URBAN / TOWN MODIFIER
+# URBAN / SETTLEMENT MODIFIER
 # ----------------------------------------------------------------------
+#
+# Through-roads passing through settlements should remain usable.
+#
+# Residential / living / service roads already have their own stronger
+# penalties above.
 #
 
 assign town_modifier_fast =
@@ -642,7 +750,6 @@ assign town_modifier_fast_curvy =
     switch estimated_town_class=6 1.08
     1.00
 
-
 assign town_modifier_curvy =
     switch estimated_town_class=  1.00
     switch estimated_town_class=1 1.00
@@ -663,7 +770,6 @@ assign town_modifier_very_curvy =
     switch estimated_town_class=6 1.08
     1.00
 
-
 assign town_modifier =
     switch equal curviness 0 town_modifier_fast
     switch equal curviness 1 town_modifier_fast_curvy
@@ -671,7 +777,34 @@ assign town_modifier =
     town_modifier_very_curvy
 
 #
-# Explicit motorway avoidance
+# ----------------------------------------------------------------------
+# CITY AVOIDANCE
+# ----------------------------------------------------------------------
+#
+# This is a soft avoidance rule, not a hard constraint.
+#
+# Small settlements remain unaffected. Larger settlement classes become
+# increasingly unattractive when avoid_cities=true.
+#
+# This keeps villages normally routable and also allows start/end points
+# inside cities to remain reachable.
+#
+
+assign city_avoid_modifier =
+    if not avoid_cities
+    then 1.00
+    else
+        switch estimated_town_class=6 1.70
+        switch estimated_town_class=5 1.35
+        switch estimated_town_class=4 1.10
+        1.00
+
+#
+# ----------------------------------------------------------------------
+# MOTORWAY CONSTRAINT
+# ----------------------------------------------------------------------
+#
+# avoid_motorways is treated as a hard routing constraint.
 #
 
 assign motorway_modifier =
@@ -681,41 +814,54 @@ assign motorway_modifier =
     else 1.00
 
 #
-# Explicit toll avoidance
+# ----------------------------------------------------------------------
+# MOTORCYCLE TOLL CONSTRAINT
+# ----------------------------------------------------------------------
+#
+# avoid_toll is also treated as a hard routing constraint.
+#
+# Important:
+#
+#   toll:motorcycle=no
+#
+# overrides a general toll=yes/true flag.
 #
 
 assign toll_modifier =
     if and avoid_toll
-           toll=yes
+           motorcycle_toll
     then 10000
     else 1.00
 
 #
-# Core route-character cost
+# ----------------------------------------------------------------------
+# CORE ROUTE CHARACTER COST
+# ----------------------------------------------------------------------
 #
 
 assign calculated_cost =
     multiply character_time_cost
     multiply town_modifier
-             motorway_modifier
+    multiply motorway_modifier
+             city_avoid_modifier
 
 #
 # ----------------------------------------------------------------------
 # HILLINESS
 # ----------------------------------------------------------------------
 #
-# Hilliness is relative rather than an absolute additive penalty.
+# Hilliness is relative.
 #
-# Neutral:
-#   flat terrain x 1.00
+# hilliness 0:
+#     flat factor 1.00
 #
-# Hilly:
-#   flat terrain x 1.10
+# hilliness 1:
+#     flat factor 1.10
 #
-# Very Hilly:
-#   flat terrain x 1.20
+# hilliness 2:
+#     flat factor 1.20
 #
-# Uphill/downhill sections do not receive this flat-terrain factor.
+# Uphill/downhill sections omit the flat-terrain factor.
 #
 
 assign flat_factor =
@@ -764,7 +910,9 @@ assign downhillcostfactor =
              calculated_cost
 
 #
-# Priority classification for turn instructions
+# ----------------------------------------------------------------------
+# PRIORITY CLASSIFICATION FOR TURN INSTRUCTIONS
+# ----------------------------------------------------------------------
 #
 
 assign priorityclassifier =
@@ -808,7 +956,9 @@ assign classifiermask =
 ---context:node
 
 #
-# Node access
+# ----------------------------------------------------------------------
+# NODE ACCESS
+# ----------------------------------------------------------------------
 #
 
 assign default_node_access =
@@ -833,6 +983,21 @@ assign motorcycle_node_access =
     switch motorcycle=
         motor_vehicle_node_access
         motorcycle=yes|permissive|designated|destination
+
+#
+# ----------------------------------------------------------------------
+# NODE COST
+# ----------------------------------------------------------------------
+#
+# BRouter's node lookup context currently does not expose
+# toll:motorcycle in the same way as the way context.
+#
+# A toll booth is therefore handled conservatively when avoid_toll=true.
+#
+# The way-level motorcycle_toll logic remains the authoritative
+# motorcycle-specific toll handling where the required OSM tags are
+# available.
+#
 
 assign initialcost =
     if and avoid_toll

@@ -1,0 +1,15 @@
+name: Thun Andermatt Curvy Hills Strong
+
+segments:
+  - from:
+      name: Thun
+      lon: 7.6292
+      lat: 46.7571
+    to:
+      name: Andermatt
+      lon: 8.5947
+      lat: 46.6357
+    routing:
+      character: curvy
+      preferences:
+        hills: strong

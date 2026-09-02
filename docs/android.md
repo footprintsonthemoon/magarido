@@ -1,4 +1,4 @@
-# BRouter Motorcycle Profiles – Android Installation
+# Magarido – Android Installation
 
 ## 1. Purpose
 

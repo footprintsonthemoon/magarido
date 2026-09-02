@@ -1,9 +1,9 @@
-# BRouter Motorcycle -- Routing Specification
+# Magarido -- Routing Specification
 
 ## 1. Purpose
 
 This document defines the current functional and architectural
-specification for the BRouter Motorcycle routing system.
+specification for the Magarido routing system.
 
 The goal is not to expose many technical BRouter profiles. The goal is
 to express motorcycle-routing intent through a small, understandable set

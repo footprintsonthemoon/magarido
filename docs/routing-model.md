@@ -1,8 +1,8 @@
-# BRouter Motorcycle Profiles -- Routing Model
+# Magarido -- Routing Model
 
 ## 1. Purpose
 
-This document describes the routing model used by the BRouter Motorcycle
+This document describes the routing model used by the Magarido
 Profiles project.
 
 It explains how the desired routing behaviour defined in

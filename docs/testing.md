@@ -1,9 +1,9 @@
-# BRouter Motorcycle Profiles -- Testing and Calibration
+# Magarido -- Testing and Calibration
 
 ## 1. Purpose
 
 This document describes the testing and calibration methodology used by
-the BRouter Motorcycle Profiles project.
+the Magarido project.
 
 Testing has three main objectives:
 

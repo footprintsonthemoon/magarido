@@ -1,4 +1,4 @@
-# BRouter Motorcycle -- Development Guide
+# Magarido -- Development Guide
 
 ## 1. Purpose
 
@@ -90,7 +90,7 @@ profiles.
 The current planner-related structure is conceptually:
 
 ``` text
-brouter-motorcycle/
+magarido/
 ├── docs/
 │   ├── development.md
 │   ├── routing-model.md

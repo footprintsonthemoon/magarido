@@ -1,8 +1,8 @@
-# BRouter Motorcycle
+# Magarido
 
 ### Offline motorcycle routing for roads worth riding.
 
-BRouter Motorcycle is a set of motorcycle-oriented routing profiles for
+Magarido is a set of motorcycle-oriented routing profiles for
 [BRouter](https://github.com/abrensch/brouter), designed to be used with
 [OsmAnd](https://osmand.net/) for fully offline motorcycle navigation.
 
@@ -11,7 +11,7 @@ It currently provides three deliberately distinct routing characters:
 **Fast · Curvy · Very Curvy**
 
 <p align="center">
-  <img src="Assets/hero.png" alt="BRouter Motorcycle" width="100%">
+  <img src="Assets/hero.png" alt="Magarido" width="100%">
 </p>
 
 > **Note**
@@ -161,7 +161,7 @@ how much additional distance or time
 is that worth?
 ```
 
-BRouter Motorcycle builds on that capability rather than implementing another
+Magarido builds on that capability rather than implementing another
 routing engine.
 
 
@@ -403,7 +403,7 @@ desktop calibration environment.
 ## Project structure
 
 ```text
-brouter-motorcycle/
+magarido/
 ├── config/
 │   └── presets.yaml
 ├── docs/

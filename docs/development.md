@@ -760,3 +760,38 @@ A routing-core change after this point requires one of:
 
 Routine v1 work should now focus on regression protection, packaging,
 reproducibility, release tooling and documentation.
+
+## 28. v1 Release Build
+
+The v1 release contains exactly three user-facing BRF files:
+
+```text
+release/moto-fast.brf
+release/moto-curvy.brf
+release/moto-very-curvy.brf
+```
+
+The release is built reproducibly with:
+
+```bash
+python tools/build_release.py --check
+python tools/build_release.py
+```
+
+The builder first regenerates the development profiles and then verifies the
+release profiles byte-for-byte by SHA-256.
+
+Release files are written through verified temporary files and atomically
+replaced only after size and hash checks succeed. This avoids truncating an
+existing release file during the build, including on synchronised filesystems.
+
+A clean release build must leave:
+
+```bash
+git diff --exit-code -- release/ profiles/
+```
+
+with exit code `0`.
+
+The release profiles are intentionally committed so users can install them
+without requiring Python or the development toolchain.

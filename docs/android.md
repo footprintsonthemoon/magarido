@@ -56,14 +56,22 @@ are development and calibration profiles and are not required for normal use.
 
 Transfer the `.brf` files from the computer to the Android device.
 
-Any normal file-transfer method can be used.
+For normal use, **LocalSend is the recommended simple method**:
 
-For example:
+1. send the three files from `release/`,
+2. receive them on Android,
+3. move them with the Android file manager into BRouter's existing `profiles2`
+   directory.
 
-- LocalSend
-- USB
-- network file transfer
-- cloud storage
+Other transfer methods such as USB, network file transfer or cloud storage are
+also valid.
+
+For development and diagnostics, ADB can be used. On the validated Carpe Iter
+v4c setup the direct command is:
+
+```bash
+adb push release/moto-fast.brf          release/moto-curvy.brf          release/moto-very-curvy.brf   /storage/emulated/0/Android/media/btools.routingapp/brouter/profiles2/
+```
 
 When using LocalSend, transferred files normally arrive in the Android
 Downloads area first.
@@ -72,6 +80,15 @@ Downloads area first.
 ## 5. Locate the BRouter profiles2 Directory
 
 BRouter stores custom routing profiles in its `profiles2` directory.
+
+On the validated Carpe Iter v4c setup, the physical path is:
+
+```text
+/storage/emulated/0/Android/media/btools.routingapp/brouter/profiles2
+```
+
+On other Android devices or BRouter versions the path may differ, so the
+existing BRouter directory should always be preferred over creating a new one.
 
 On recent Android versions, the system Files application can make this
 slightly confusing.
@@ -471,3 +488,47 @@ release.
 
 The current three profiles provide the routing foundation for that future
 model.
+
+## 22. v1 Deployment Validation
+
+The v1 release deployment was validated end-to-end on a Carpe Iter v4c.
+
+The three release files were installed in:
+
+```text
+/storage/emulated/0/Android/media/btools.routingapp/brouter/profiles2
+```
+
+BRouter recognised all three profiles:
+
+```text
+moto-fast
+moto-curvy
+moto-very-curvy
+```
+
+OsmAnd successfully exposed the installed profile using the expected external
+router naming, for example:
+
+```text
+BRouter[moto-curvy]
+Type router (offline)
+```
+
+This validates the v1 deployment chain:
+
+```text
+release/*.brf
+    ->
+Android profiles2
+    ->
+BRouter
+    ->
+OsmAnd
+    ->
+offline routing
+```
+
+For ordinary installation, LocalSend plus the Android file manager is simpler
+than ADB. ADB remains useful for development, diagnostics and exact path
+verification.

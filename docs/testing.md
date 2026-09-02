@@ -1383,3 +1383,34 @@ No further routing-weight calibration is planned for v1. Changes to routing
 weights or semantics require either a reproducible regression defect or
 materially new independent evidence. Cosmetic differentiation between profiles
 is not sufficient reason to change the model.
+
+## 41. v1 Release and Deployment Acceptance
+
+After the routing-core freeze, the release and deployment path was validated
+separately from routing quality.
+
+Release reproducibility was confirmed by comparing the generated development
+profiles and the three files under `release/` byte-for-byte. The v1 release
+contains only:
+
+```text
+moto-fast.brf
+moto-curvy.brf
+moto-very-curvy.brf
+```
+
+The release builder verifies file size and SHA-256 and writes release files
+atomically.
+
+Deployment was then validated on a Carpe Iter v4c. BRouter recognised all
+three profiles from its Android `profiles2` directory, and OsmAnd exposed the
+custom external router successfully, for example:
+
+```text
+BRouter[moto-curvy]
+Type router (offline)
+```
+
+This acceptance step validates packaging and deployment only. It does not
+reopen routing calibration, which remains frozen under the v1 acceptance
+decision above.

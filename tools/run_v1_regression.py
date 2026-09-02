@@ -258,10 +258,51 @@ def percentile(values: list[float], p: float) -> float:
     return values[idx]
 
 
-def nearest_distance(point: list[float], corridor: list[list[float]]) -> float:
-    # Baseline is simplified, so point-to-vertex distance is deliberately
-    # approximate. This is a regression alarm, not a GIS equivalence proof.
-    return min(haversine_m(point, candidate) for candidate in corridor)
+def point_to_segment_distance_m(
+    point: list[float],
+    a: list[float],
+    b: list[float],
+) -> float:
+    """Approximate point-to-segment distance in metres."""
+    lon0, lat0 = point[:2]
+    lat0_rad = math.radians(lat0)
+    metres_per_deg_lat = 111_320.0
+    metres_per_deg_lon = 111_320.0 * math.cos(lat0_rad)
+
+    def xy(p: list[float]) -> tuple[float, float]:
+        return (
+            (p[0] - lon0) * metres_per_deg_lon,
+            (p[1] - lat0) * metres_per_deg_lat,
+        )
+
+    ax, ay = xy(a)
+    bx, by = xy(b)
+
+    vx, vy = bx - ax, by - ay
+    vv = vx * vx + vy * vy
+
+    if vv <= 0.0:
+        return math.hypot(ax, ay)
+
+    t = max(0.0, min(1.0, -(ax * vx + ay * vy) / vv))
+    cx, cy = ax + t * vx, ay + t * vy
+    return math.hypot(cx, cy)
+
+
+def nearest_distance_to_corridor(
+    point: list[float],
+    corridor: list[list[float]],
+) -> float:
+    if not corridor:
+        return 0.0
+
+    if len(corridor) == 1:
+        return haversine_m(point, corridor[0])
+
+    return min(
+        point_to_segment_distance_m(point, a, b)
+        for a, b in zip(corridor, corridor[1:])
+    )
 
 
 def corridor_delta_m(current: list[list[float]],
@@ -276,11 +317,11 @@ def corridor_delta_m(current: list[list[float]],
     baseline_s = baseline
 
     distances = [
-        nearest_distance(p, baseline_s)
+        nearest_distance_to_corridor(p, baseline_s)
         for p in current_s
     ]
     distances += [
-        nearest_distance(p, current_s)
+        nearest_distance_to_corridor(p, current_s)
         for p in baseline_s
     ]
 

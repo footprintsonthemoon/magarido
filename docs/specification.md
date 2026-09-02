@@ -1,1166 +1,788 @@
-# BRouter Motorcycle Profiles – Specification
+# BRouter Motorcycle -- Routing Specification
 
 ## 1. Purpose
 
-This project provides motorcycle-oriented routing profiles for BRouter, with
-OsmAnd on Android as the primary target application.
+This document defines the current functional and architectural
+specification for the BRouter Motorcycle routing system.
 
-The profiles are intended for riders who want more control over the character
-of a route than conventional "fastest" or "shortest" routing normally provides.
+The goal is not to expose many technical BRouter profiles. The goal is
+to express motorcycle-routing intent through a small, understandable set
+of controls and translate that intent into reproducible BRouter routing.
 
-The initial project focuses on paved-road motorcycle touring.
-
-The primary routing concepts are:
-
-- travel efficiency
-- road character / curviness
-- topography / hilliness
-
-The goal is not to generate artificially different routes for every profile.
-
-A user-facing profile is useful only if it represents a distinct,
-understandable and reproducible routing preference.
-
+The specification describes the current target model. Historical
+experiments are mentioned only when they establish a design decision.
 
 ## 2. Design Principles
 
-### 2.1 Behaviour before profile count
+The system shall follow these principles:
 
-The project does not aim to provide as many profiles as possible.
+1.  **Simple user model**\
+    A rider should choose meaningful routing intentions rather than
+    internal cost-model parameters.
 
-Profiles should only be exposed to users when they produce a meaningful and
-understandable difference in routing behaviour.
+2.  **Few primary routing characters**\
+    The primary choice shall remain Fast, Curvy or Very Curvy.
 
-If two profiles behave essentially identically across representative routes,
-they should not both be part of the user-facing profile set.
+3.  **Orthogonal dimensions**\
+    Routing character, constraints, secondary preferences and vehicle
+    characteristics shall remain conceptually separate.
 
-The internal routing model may contain more parameters and presets than the
-public interface.
+4.  **Time-oriented foundation**\
+    Fast, Curvy and Very Curvy shall share the KinematicModel-based
+    time-oriented routing foundation.
 
+5.  **Motorcycle character over artificial difference**\
+    Curvy profiles should favour attractive motorcycle roads, not merely
+    produce routes different from Fast.
 
-### 2.2 Global rules, not route-specific optimisation
+6.  **No route-specific hacks**\
+    Calibration may use individual roads, but implementation rules must
+    generalise.
 
-Routing behaviour must never be tuned merely to produce a desired result on
-one specific road or test route.
+7.  **Graceful behaviour where alternatives are weak**\
+    A stronger preference shall not force an implausible route merely to
+    make profiles look different.
 
-Real-world routes are used to identify weaknesses or characteristics of the
-routing model.
+8.  **Segment-level intent**\
+    Different parts of a journey may use different routing intentions.
 
-A concrete test case may therefore:
-
-1. reveal unexpected behaviour,
-2. lead to a general hypothesis,
-3. motivate a general model change,
-4. validate that change on geographically and topographically different
-   routes.
-
-A route-specific exception must not be introduced merely to make one test
-route behave as expected.
-
-
-### 2.3 Local attractiveness and global optimisation
-
-BRouter optimises a route globally between its start and destination.
-
-A road segment that is attractive when routed independently may therefore not
-appear in a longer route if the complete alternative has a higher accumulated
-cost or if the longer route enters and leaves the area differently.
-
-This behaviour must not automatically be treated as a routing error.
-
-The distinction between local routing quality and global route planning is an
-important architectural principle of this project.
-
-
-### 2.4 Predictability
-
-A rider should be able to understand the basic behaviour of a profile without
-knowing the internal BRouter cost model.
-
-Profile names and descriptions should correspond to observable routing
-behaviour.
-
-
-### 2.5 Conservative road selection
-
-Increasing curviness must not simply mean selecting smaller roads.
-
-In particular, residential streets, living streets and service roads must not
-become attractive merely because they are slower, smaller or contain more
-direction changes.
-
-The intended target is an attractive motorcycle road, not arbitrary geometric
-complexity.
-
-
-### 2.6 Meaningful alternatives
-
-Profiles should only produce different routes where the road network provides
-meaningful alternatives.
-
-If topography or infrastructure effectively provides one sensible corridor,
-identical routing across profiles is acceptable and expected.
-
-Artificial detours must not be introduced merely to differentiate profiles.
-
+9.  **Offline-compatible routing**\
+    The routing foundation shall remain compatible with BRouter and
+    offline navigation workflows such as OsmAnd.
 
 ## 3. Target Environment
 
-### 3.1 Routing engine
+The routing engine is BRouter using OpenStreetMap-derived routing data.
 
-BRouter is the routing engine.
+The current navigation target is Android with OsmAnd.
 
-Profiles are implemented as BRouter `.brf` profiles and are designed to work
-offline using BRouter routing data.
+The development and planning environment may run on macOS or another
+system capable of running the BRouter standalone server and Python
+tooling.
 
+## 4. System Model
 
-### 3.2 Primary client
+A route consists of one or more segments.
 
-OsmAnd on Android is the primary target application.
+Each segment may carry its own routing intention:
 
-The user-facing profiles should be usable as custom BRouter routing profiles
-from OsmAnd.
+``` text
+segment
+    +
+routing character
+    +
+constraints
+    +
+secondary preferences
+    +
+vehicle characteristics
+        |
+        v
+profile compilation
+        |
+        v
+BRouter KinematicModel
+        |
+        v
+optional alternative evaluation
+        |
+        v
+segment route
+```
 
+A complete tour is formed by joining the routed segments.
 
-### 3.3 Development environment
+## 5. Routing Character
 
-The reference development environment is macOS.
+The primary routing character shall be one of:
 
-Development and calibration are performed locally using:
+``` text
+fast
+curvy
+very-curvy
+```
 
-- BRouter standalone server
-- local BRouter segment data
-- Python tooling
-- generated `.brf` profiles
-- automated smoke tests
-- calibration tests
-- browser-based visual route comparison
+Routing character expresses the fundamental trade-off between expected
+travel time and desirable motorcycle-road character.
 
-The final profiles themselves must not depend on the development environment.
+## 6. Fast
 
+Fast shall primarily optimise expected travel time.
 
-## 4. Routing Scope
+Fast shall not explicitly mean:
 
-The initial scope is paved-road motorcycle touring.
+``` text
+prefer motorway
+```
 
-The routing model should:
+Motorways and other high-speed roads may nevertheless be selected when
+they produce the best expected travel time under the current vehicle
+model and constraints.
 
-- respect motorcycle access restrictions
-- respect one-way restrictions
-- respect turn restrictions
-- handle barriers correctly
-- support ferries when enabled
-- support toll roads when enabled
-- support motorways when enabled
-- avoid unsuitable paths and tracks by default
-- avoid unpaved roads by default
+An additional constraint should not produce a materially faster route
+than the equivalent unconstrained Fast route under the same vehicle
+model.
 
-Unpaved routing may be supported as an explicit option but is not the primary
-focus of the initial release.
+## 7. Curvy
 
+Curvy shall use the same time-oriented foundation as Fast while adding a
+moderate preference for roads with desirable motorcycle-routing
+characteristics.
 
-## 5. Routing Dimensions
+Curvy may accept additional travel time when the resulting road
+character is meaningfully better.
 
-### 5.1 Travel efficiency
+Curvy must not simply penalise fast roads indiscriminately.
 
-Travel efficiency represents the expected cost of travelling along a road.
+## 8. Very Curvy
 
-The routing model must not treat all road kilometres as equivalent.
+Very Curvy shall use the same time-oriented foundation as Fast and Curvy
+while applying a stronger motorcycle-road preference than Curvy.
 
-A motorway kilometre and a village-road kilometre have substantially different
-expected travel times.
+The intended ordering is:
 
-The base routing model must therefore be time-aware.
+``` text
+Fast
+    strongest emphasis on expected time
 
-Where available, explicit speed information should be considered.
+Curvy
+    moderate willingness to trade time for road character
 
-Where explicit speed information is unavailable or unsuitable, reasonable
-implicit speeds may be derived from road classification and other relevant
-OpenStreetMap attributes.
+Very Curvy
+    stronger willingness to trade time for road character
+```
 
-Surface and road type may further constrain effective travel speed.
+Very Curvy shall still remain plausible. It shall not seek detours
+solely to differentiate itself from Curvy.
 
+## 9. KinematicModel
 
-### 5.2 Curviness
+The current time-oriented foundation is BRouter's KinematicModel.
 
-Curviness represents a preference for roads that are attractive for motorcycle
-touring.
+The model can account for factors including:
 
-It is not equivalent to:
+-   speed limits,
+-   acceleration and deceleration,
+-   rolling resistance,
+-   aerodynamic resistance,
+-   elevation,
+-   junction slowdowns,
+-   curve-related speed effects.
 
-- shortest distance
-- lowest road class
-- most turns
-- smallest road
-- highest elevation
+The use of KinematicModel is now part of the current architecture, not
+an open candidate evaluation.
 
-Curviness may influence the preference for road classes and other available
-road characteristics.
+## 10. Vehicle Characteristics
 
-A Curvy profile may accept additional travel time or distance when this results
-in a more attractive motorcycle route.
+Vehicle characteristics are independent of routing intention.
 
-The acceptable trade-off must remain bounded and predictable.
+The internal model may include values such as:
 
+-   total motorcycle/rider/luggage mass,
+-   rolling resistance,
+-   aerodynamic resistance,
+-   target speed,
+-   other KinematicModel parameters.
 
-### 5.3 Hilliness
+The current implementation uses a generic touring-motorcycle model.
 
-Hilliness represents a preference for topographically varied routes.
+A future user interface may ask for understandable motorcycle and load
+characteristics and translate them into low-level model parameters.
 
-It is conceptually independent from curviness.
+Users should not normally be required to configure physical coefficients
+directly.
 
-A route can theoretically be:
+## 11. Constraints
 
-- curvy but relatively flat
-- curvy and hilly
-- fast and hilly
-- fast and flat
+Constraints modify the set or attractiveness of usable roads
+independently of routing character.
 
-In real road networks, however, curviness and hilliness are often correlated.
+Currently validated constraints are:
 
-Mountain and hill roads frequently contain more curves and may already be
-favoured by a Curvy routing model.
+``` text
+avoid_motorways
+avoid_toll
+```
 
-Hilliness therefore remains an internal routing dimension even though current
-testing does not justify a separate Hilliness user profile.
+The same constraints may be combined with Fast, Curvy or Very Curvy.
 
+## 12. Avoid Motorways
 
-### 5.4 Urban routing
+`avoid_motorways` expresses the intention to avoid motorway-class roads.
 
-Passing through a village on an otherwise attractive through-road is not the
-same as routing through residential streets.
+It shall not implicitly mean:
 
-The model should therefore distinguish, as far as the available data permits,
-between:
+``` text
+avoid every toll road
+```
 
-- useful through-roads crossing settlements
-- residential streets
-- living streets
-- service roads
+and it shall not change the selected routing character.
 
-Urban penalties must not unintentionally exclude otherwise attractive
-motorcycle roads.
+## 13. Avoid Toll
 
+`avoid_toll` expresses the intention to avoid roads represented as
+toll-relevant by the available BRouter/OpenStreetMap data and routing
+model.
 
-## 6. Internal Profile Model
+It shall remain independent of road class.
 
-The routing model supports multiple levels of curviness and hilliness for
-development and calibration.
+A country's charging model must not be converted into a generic
+assumption that motorway avoidance and toll avoidance are equivalent.
 
-The current development presets are:
+## 14. Toll vs Motorway Semantics
 
-- `moto-fast`
-- `moto-fast-curvy`
-- `moto-curvy`
-- `moto-very-curvy`
-- `moto-curvy-hilly`
-- `moto-curvy-very-hilly`
+Martigny -\> Aosta is a current regression case.
 
-These presets deliberately cover a broader parameter space than the intended
-user-facing release.
+Observed results:
 
-Development presets may remain available internally even when they are not
-distributed as normal user profiles.
+  Intention                  Distance        Time   Ascent     Cost
+  ------------------------ ---------- ----------- -------- --------
+  Fast                        73.2 km    83.9 min   1473 m   115474
+  Fast + avoid toll           77.9 km   102.1 min   2023 m   140871
+  Fast + avoid motorways      73.2 km    83.9 min   1473 m   115474
 
+The Fast and Fast + avoid-motorways geometries were identical, while the
+avoid-toll geometry differed.
 
-## 7. Initial User-Facing Profiles
+The Great St Bernard area makes this distinction useful because it
+combines road-class and separate toll considerations.
 
-Based on current calibration and validation, the initial release candidates
-are:
+This test establishes semantic independence. It shall not create a
+route-specific exception.
 
-- `moto-fast`
-- `moto-curvy`
-- `moto-very-curvy`
+## 15. Secondary Preferences
 
-This provides a simple progression from travel efficiency toward increasingly
-strong motorcycle-road preference.
+A secondary preference influences route selection without redefining the
+primary routing character.
 
+The currently implemented secondary preference is:
 
-## 8. Fast
+``` text
+hills
+```
 
-Goal:
+with values:
 
-> Reach the destination efficiently while using roads suitable for motorcycle
-> travel.
+``` text
+off
+moderate
+strong
+```
 
-Expected behaviour:
+## 16. Hilliness
 
-- travel time is the dominant routing criterion
-- motorways may be used
-- trunk and primary roads may be used
-- unnecessary local-road detours are avoided
-- curves and elevation are not intentionally sought
-- meaningful time advantages should normally outweigh scenic alternatives
+Hilliness shall remain secondary to routing character.
 
-Fast represents the efficient baseline against which the stronger
-motorcycle-oriented profiles can be compared.
+For motorcycle touring in the current design, Curvy/Very Curvy road
+character is more important than accumulating elevation.
 
+Therefore:
 
-## 9. Curvy
+``` text
+character: curvy
+hills: strong
+```
 
-Goal:
+shall mean:
 
-> Prefer attractive motorcycle roads while keeping additional travel time and
-> distance within reasonable limits.
+``` text
+prefer a good Curvy route;
+among acceptable possibilities, favour a meaningfully hillier route
+```
 
-Expected behaviour:
+It shall not mean:
 
-- suitable secondary and tertiary roads are preferred where appropriate
-- moderate detours are acceptable
-- a faster motorway corridor may be rejected when a sufficiently attractive
-  alternative exists
-- residential and service roads must not become attractive merely because they
-  are slower or geometrically complex
-- motorways remain available when alternatives would require unreasonable
-  additional cost
+``` text
+maximise ascent
+```
 
-Curvy is intended to be the normal motorcycle-touring profile.
+## 17. Hilliness Implementation
 
+Hilliness is currently implemented by the planning layer using BRouter
+alternatives.
 
-## 10. Very Curvy
+The underlying Curvy or Very Curvy profile is calculated first. When
+hilliness is requested, the planner evaluates available alternatives
+against general criteria such as:
 
-Goal:
+-   additional ascent,
+-   ascent relative to route length,
+-   additional travel time.
 
-> Apply a stronger preference for motorcycle-oriented road character and
-> accept larger reasonable deviations from the fastest route.
+`moderate` shall accept a smaller trade-off than `strong`.
 
-Expected behaviour:
+If no sufficiently attractive hillier alternative exists, the baseline
+route shall be retained.
 
-- stronger preference for suitable secondary and tertiary roads
-- greater willingness to avoid high-speed corridors
-- larger acceptable time and distance trade-offs than Curvy
-- no artificial detours solely to create route differences
-- conservative handling of residential, living and service roads remains in
-  effect
+Hilliness shall not require a separate public routing character or a
+separate family of user-facing `*-hilly` profiles.
 
-Current testing has demonstrated reproducible differences between Curvy and
-Very Curvy.
+## 18. Hilliness Behavioural Requirements
 
-On some routes these differences are local.
+The following requirements apply:
 
-On other routes they can result in substantially different corridor choices.
+-   `off` shall not deliberately select a route because it is hillier.
+-   `moderate` may select a meaningfully hillier alternative within a
+    moderate routing trade-off.
+-   `strong` may accept a larger routing trade-off.
+-   neither level shall blindly maximise ascent.
+-   a route that is already strongly mountainous may remain unchanged.
+-   hilliness shall not override the selected routing character.
+-   the algorithm shall use general rules rather than named-route
+    exceptions.
 
-Very Curvy therefore provides a sufficiently distinct routing concept for the
-initial release.
+## 19. Hilliness Regression Cases
 
+### 19.1 Biel -\> Neuchatel
 
-## 11. Experimental Profile: Fast Curvy
+``` text
+character: curvy
+hills: strong
+```
 
-Fast Curvy was designed to represent:
+Current expected result:
 
-> Mostly fast routing with limited willingness to trade travel time for more
-> attractive roads.
+``` text
+BRouter alternative: 2
+distance: 40.3 km
+time: 48.2 min
+ascent: 810 m
+cost: 70011
+```
 
-The intended conceptual position is:
+This demonstrates a case where a substantially hillier alternative is
+worth selecting.
 
-    Fast
-      ->
-    Fast Curvy
-      ->
-    Curvy
+### 19.2 Fribourg -\> Altdorf
 
-Current testing has occasionally demonstrated local differences between Fast
-and Fast Curvy.
+``` text
+character: curvy
+hills: moderate
+```
 
-These differences tend to occur before entering or after leaving dominant
-motorway corridors, where several alternatives have similar travel costs.
+Current expected result:
 
-Across the broader calibration set, however, Fast and Fast Curvy frequently
-produce identical routes.
+``` text
+BRouter alternative: 2
+distance: 172.9 km
+time: 185.6 min
+ascent: 2090 m
+cost: 308341
+```
 
-The additional user value is therefore currently insufficient to justify
-another user-facing profile.
+This demonstrates hill preference on a longer route.
 
-Fast Curvy remains available as an internal calibration level.
+### 19.3 Thun -\> Andermatt
 
+``` text
+character: curvy
+hills: strong
+```
 
-## 12. Experimental Profile: Curvy Hilly
+Current expected result:
 
-Curvy Hilly combines the Curvy road-character model with a preference for
-topographically varied routes.
+``` text
+baseline
+distance: 113.3 km
+time: 132.1 min
+ascent: 2674 m
+cost: 196336
+```
 
-Current testing shows very little practical difference between:
+This is an important negative regression case. The baseline is already
+strongly mountainous, so a strong hill preference shall not force an
+inferior alternative.
 
-    Curvy
-    Curvy Hilly
+## 20. Segment-Based Routing
 
-This is consistent with the observation that attractive curvy motorcycle roads
-and hilly terrain are often naturally correlated.
+Segment-based routing is part of the current architecture.
 
-A small difference has been observed on selected routes, but not sufficiently
-often or strongly to justify a separate user-facing profile.
+A tour may contain different intentions for different sections:
 
-Curvy Hilly remains available for development and future research.
+``` text
+Biel
+  |
+  | Fast
+  v
+Bern
+  |
+  | Curvy
+  v
+Thun
+  |
+  | Very Curvy
+  v
+Brienz
+  |
+  | Curvy
+  v
+Andermatt
+```
 
+This reflects real motorcycle touring better than applying one global
+profile to an entire journey.
 
-## 13. Experimental Profile: Curvy Very Hilly
+## 21. Segment Definition
 
-Curvy Very Hilly represents a stronger topographical preference.
+The current planner uses YAML.
 
-It is useful as an experimental extreme for determining the useful range of
-the Hilliness model.
+Conceptual example:
 
-Current testing does not demonstrate sufficient independent user value for
-initial release.
+``` yaml
+name: Alpine Tour
 
-It remains an internal experimental profile.
-
-
-## 14. Profile Selection Criteria
-
-A development profile should become a user-facing profile only when it meets
-the following criteria:
-
-1. It has a clearly explainable purpose.
-2. Its behaviour is observably different from adjacent profiles on a useful
-   subset of representative routes.
-3. The difference is reproducible across different geographic situations.
-4. The difference corresponds to a realistic motorcycle-routing preference.
-5. It does not require route-specific exceptions.
-6. It does not produce unreasonable detours merely to differentiate itself.
-7. A rider can reasonably predict why the profile selected a particular type
-   of route.
-
-Profile reduction is therefore considered a successful calibration outcome
-when redundant profiles are identified.
-
-
-## 15. Current Profile Decision
-
-The current release candidates are:
-
-    moto-fast
-    moto-curvy
-    moto-very-curvy
-
-The current internal and experimental profiles are:
-
-    moto-fast-curvy
-    moto-curvy-hilly
-    moto-curvy-very-hilly
-
-The internal profiles should remain available for calibration and future
-research.
-
-This separation allows the internal routing model to remain expressive while
-keeping the user interface simple.
-
-
-## 16. User-Facing Progression
-
-The intended user-facing progression is:
-
-    FAST
-      |
-      | increasing willingness to trade
-      | travel efficiency for road character
-      v
-    CURVY
-      |
-      v
-    VERY CURVY
-
-This progression should remain understandable without requiring users to know
-BRouter cost factors or OpenStreetMap road classifications.
-
-
-## 17. Calibration Strategy
-
-Routing quality cannot be evaluated using a single route.
-
-The test suite should contain geographically and topographically different
-routes with different purposes.
-
-Detailed routes and observations are documented in `docs/testing.md`.
-
-
-## 18. Route-Choice Categories
-
-Calibration routes should be understood according to the amount of real route
-choice available.
-
-
-### 18.1 High-choice routes
-
-Several plausible corridors or road types exist.
-
-These are particularly useful for profile differentiation.
-
-
-### 18.2 Mixed-choice routes
-
-Only part of the route provides meaningful alternatives.
-
-These are useful for testing longer journeys but profile differences must be
-evaluated primarily where real alternatives exist.
-
-
-### 18.3 Constrained routes
-
-Topography or infrastructure provides effectively one practical corridor.
-
-Identical routing across profiles is expected.
-
-Such routes are primarily useful for regression testing.
-
-
-## 19. Regression Tests
-
-Regression tests answer:
-
-> Does the routing model continue to produce sensible routes?
-
-They are intended to detect unintended side effects.
-
-A route does not need to produce different results for every profile to be a
-useful regression test.
-
-
-## 20. Behaviour Tests
-
-Behaviour tests answer:
-
-> Do the profiles demonstrate the routing character they claim to represent?
-
-Examples include routes where meaningful choices exist between:
-
-- motorway and secondary roads
-- efficient and scenic corridors
-- major and minor through-roads
-- flatter and more topographically varied corridors
-
-
-## 21. Diagnostic Tests
-
-Diagnostic tests investigate a specific routing observation.
-
-A longer route may be divided into smaller sections to determine why a locally
-attractive alternative behaves differently within the complete journey.
-
-Diagnostic tests are not themselves a reason to change routing parameters.
-
-They generate hypotheses that must subsequently be validated using other
-routes.
-
-
-## 22. Local vs. Global Routing
-
-A key result of current testing is the importance of distinguishing local route
-quality from end-to-end optimisation.
-
-A road may be selected by Curvy when routing:
-
-    B -> C
-
-while a longer route:
-
-    A -> D
-
-may use a different overall corridor.
-
-This does not automatically imply that the local road is incorrectly valued.
-
-The complete route must be analysed in terms of:
-
-- entry and exit points
-- alternative corridors
-- constrained sections
-- accumulated cost
-- available route choice
-
-
-## 23. Diagnostic Example: Interlaken -> Brienz
-
-The Lake Brienz case provides a useful example.
-
-Between Interlaken and Brienz, a fast corridor and an attractive northern
-through-road provide meaningful alternatives.
-
-When routed independently, the Curvy profile family selects the northern
-alternative.
-
-This demonstrates that the routing model can recognise the road as an
-attractive motorcycle route.
-
-On the longer Thun -> Andermatt journey, much of the remaining route is
-topographically constrained.
-
-The case therefore demonstrates the importance of analysing the amount and
-location of real route choice.
-
-It must not result in a Lake-Brienz-specific routing rule.
-
-
-## 24. Generalisation Requirement
-
-Every routing-model change should follow this sequence:
-
-    observation
-        ->
-    general hypothesis
-        ->
-    model change
-        ->
-    independent validation
-
-A model change must not be accepted merely because it improves the route that
-originally motivated the change.
-
-This requirement is central to avoiding overfitting.
-
-
-## 25. Validation Beyond Switzerland
-
-The current calibration set is primarily Swiss.
-
-Before the model is considered broadly stable, representative routes should
-also be tested in other regions.
-
-Useful future validation environments include:
-
-- Jura
-- Black Forest
-- Vosges
-- Alps outside Switzerland
-- flatter rural regions
-- regions with different OpenStreetMap tagging practices
-
-The purpose is to verify that the routing model represents general road
-characteristics rather than properties specific to Swiss geography or mapping
-practice.
-
-
-## 26. Routing vs. Route Planning
-
-This project distinguishes between two separate problems.
-
-
-### 26.1 Routing
-
-Routing answers:
-
-> What is the preferred route from A to B according to a given motorcycle
-> profile?
-
-This is the responsibility of the BRouter profile.
-
-
-### 26.2 Route planning
-
-Route planning answers:
-
-> Through which intermediate areas or waypoints should the complete journey
-> pass?
-
-A globally optimised route:
-
-    A -> D
-
-may legitimately differ from independently optimised segments:
-
-    A -> B
-    B -> C
-    C -> D
-
-This distinction is particularly important for motorcycle touring.
-
-
-## 27. Target Vision: Segment-Based Motorcycle Routing
-
-The long-term target is not a continuously growing collection of global
-routing profiles.
-
-Instead, a motorcycle journey should be understood as a sequence of route
 segments:
+  - from:
+      name: Biel
+      lon: 7.2468
+      lat: 47.1368
+    to:
+      name: Bern
+      lon: 7.4474
+      lat: 46.9480
+    routing:
+      character: fast
 
-    Start
-      |
-      v
-    Segment 1
-      |
-      v
-    Waypoint
-      |
-      v
-    Segment 2
-      |
-      v
-    Waypoint
-      |
-      v
-    Segment 3
-      |
-      v
-    Destination
+  - from:
+      name: Bern
+      lon: 7.4474
+      lat: 46.9480
+    to:
+      name: Thun
+      lon: 7.6292
+      lat: 46.7571
+    routing:
+      character: curvy
+      preferences:
+        hills: moderate
+      constraints:
+        avoid_motorways: false
+        avoid_toll: false
+```
 
-Each segment represents an independent routing decision.
+The schema may evolve, but the conceptual separation of character,
+constraints and preferences shall remain stable.
 
-A waypoint therefore has two possible roles:
+## 22. Waypoints
 
-1. it defines a geographic point through which the journey should pass,
-2. it defines the boundary between two routing intentions.
+Waypoints serve two roles:
 
-This allows routing behaviour to change naturally during a journey without
-requiring increasingly specialised global profiles.
+1.  geographic points through which the tour passes,
+2.  boundaries at which routing intention may change.
 
+They are therefore part of the planning model rather than merely forced
+coordinates inside one global route.
 
-## 28. Routing Character
+## 23. BRouter Alternatives
 
-The primary routing character describes the fundamental trade-off between
-travel efficiency and motorcycle-road attractiveness.
+BRouter alternatives are candidate routes, not semantic routing modes.
 
-The current routing characters are:
+The planner may inspect multiple `alternativeidx` results and select
+among them when a preference such as hilliness requires it.
 
-    Fast
-    Curvy
-    Very Curvy
+Alternative index alone shall not determine preference.
 
-These should remain few in number and clearly distinguishable.
+Cost alone shall not determine hill preference.
 
-Conceptually:
+The planner must evaluate the characteristics relevant to the stated
+user intention.
 
-    Fast
-        travel efficiency dominates
+## 24. Separation of Responsibilities
 
-    Curvy
-        moderate willingness to trade efficiency
-        for motorcycle-oriented road character
+The architecture consists of three principal layers:
 
-    Very Curvy
-        stronger willingness to trade efficiency
-        for motorcycle-oriented road character
+``` text
+TOUR PLANNING
 
-A routing character applies to one route segment rather than necessarily to
-the complete journey.
+    journey
+    waypoints
+    segments
+    per-segment intentions
+    alternative selection
 
+            |
+            v
 
-## 29. Routing Preferences and Constraints
+ROUTING INTENTION
 
-Additional routing intentions should not automatically become separate
-profiles.
+    Fast / Curvy / Very Curvy
+    constraints
+    secondary preferences
+    vehicle characteristics
 
-Examples include:
+            |
+            v
 
-    Avoid Motorways
-    Avoid Toll Roads
-    Avoid Cities
-    Prefer Hills
+ROUTING ENGINE
 
-These concepts are different from the primary routing character.
+    BRouter
+    KinematicModel
+    BRF expressions
+    OpenStreetMap data
+```
 
-Where technically feasible, they should therefore be modelled as independent
-preferences or constraints.
+BRouter is responsible for route calculation between defined points.
 
-Conceptually:
+The planner is responsible for composing multiple routing decisions into
+a complete journey and for preference-level decisions that should not be
+encoded as separate BRF profile families.
 
-    routing intention
-        =
-    routing character
-        +
-    optional preferences
-        +
-    optional constraints
+## 25. Profile Compilation
 
-For example:
+The current planner compiles the profile-relevant portion of a routing
+intention into a BRouter BRF based on:
 
-    character: Curvy
+``` text
+src/moto-kinematic-base.brf
+```
 
-    preferences:
-        Prefer Hills
+Generated profiles are implementation artefacts.
 
-    constraints:
-        Avoid Cities
-        Avoid Motorways
+A routing preference that is handled entirely by planner-level
+alternative selection does not need to produce a different BRF.
 
-This separation avoids a combinatorial explosion of profiles such as:
+This prevents a combinatorial explosion such as:
 
-    curvy-hilly
-    curvy-hilly-no-motorway
-    curvy-hilly-no-motorway-avoid-cities
-    very-curvy-hilly-no-motorway
-    ...
+``` text
+curvy
+curvy-hilly
+curvy-hilly-no-motorway
+curvy-hilly-no-motorway-no-toll
+...
+```
 
-The internal implementation may initially require generated BRouter profiles
-for technical reasons.
+The user model shall expose independent controls instead.
 
-The conceptual model should nevertheless keep these dimensions separate.
+## 26. Output
 
+A complete planned tour shall be exportable as:
 
-## 30. Segment-Specific Routing Intentions
+``` text
+GeoJSON
+GPX
+```
 
-A future planning layer should allow each segment to use its own routing
-intention.
+The GPX shall contain:
 
-Example:
+-   the tour waypoints,
+-   a continuous track representing all routed segments.
 
-    Biel
-      |
-      | Fast
-      v
-    Bern
-      |
-      | Curvy + Avoid Cities
-      v
-    Thun
-      |
-      | Very Curvy
-      v
-    Brienz
-      |
-      | Curvy
-      v
-    Andermatt
+The current GPX output has been validated with OsmAnd navigation.
 
-A structured representation could conceptually look like:
+## 27. User Interface Priority
 
-    segments:
+A future graphical interface should present controls in approximately
+this order:
 
-      - from: Biel
-        to: Bern
-        character: fast
+``` text
+1. Routing character
+   Fast / Curvy / Very Curvy
 
-      - from: Bern
-        to: Thun
-        character: curvy
-        avoid:
-          - cities
+2. Important constraints
+   Avoid Motorways
+   Avoid Toll Roads
 
-      - from: Thun
-        to: Brienz
-        character: very-curvy
-        avoid:
-          - motorways
+3. Secondary preferences
+   Hills: Off / Moderate / Strong
 
-      - from: Brienz
-        to: Andermatt
-        character: curvy
+4. Optional vehicle configuration
+   expressed through understandable motorcycle/load properties
+```
 
-The exact data format is not part of the initial release specification.
+Low-level BRouter and KinematicModel parameters shall not normally be
+exposed.
 
+## 28. Calibration and Validation
 
-## 30.1 Why Segment-Based Routing Matters
+Routing changes shall be validated using multiple geographically and
+functionally different routes.
 
-Current calibration has demonstrated that meaningful routing choices are often
-local rather than global.
+The preferred development method is:
 
-A long journey may contain:
+``` text
+observation
+    ->
+hypothesis
+    ->
+general implementation
+    ->
+independent validation
+```
 
-- sections where motorway travel is clearly appropriate,
-- sections with several attractive motorcycle-road alternatives,
-- sections where topography provides effectively one route,
-- urban areas that a rider may prefer to bypass,
-- scenic regions where additional travel time is deliberately acceptable.
+A calibration route may reveal a problem, but the solution shall not
+encode that route specifically.
 
-Applying one global routing preference to the entire journey cannot express
-these intentions precisely.
+## 29. Validation Categories
 
-Segment-based routing allows the rider to decide where a particular routing
-behaviour matters.
+The test set should cover at least:
 
+-   short mixed routes,
+-   fast-vs-secondary-road routes,
+-   alpine routes,
+-   long mixed routes,
+-   routes where motorway use is clearly beneficial,
+-   routes where motorway avoidance matters,
+-   toll-specific cases,
+-   routes with useful hillier alternatives,
+-   routes already naturally mountainous,
+-   routes where profiles should legitimately converge.
 
-## 30.2 Waypoints as Routing Boundaries
+## 30. Route Similarity
 
-Waypoints should not merely force the routing engine through arbitrary
-coordinates.
+Two routing characters do not need to produce different geometry on
+every route.
 
-In the future planning model they can also represent intentional transitions
-between routing behaviours.
+Identical or nearly identical routes are acceptable when the network
+offers no meaningful alternative.
 
-For example:
+Future tooling may quantify:
 
-    A -> B    Fast
-    B -> C    Curvy
-    C -> D    Very Curvy
+-   shared route percentage,
+-   unique route percentage,
+-   distance delta,
+-   time delta,
+-   ascent delta,
+-   motorway share,
+-   road-class distribution,
+-   corridor similarity.
 
-This also provides a general solution to observations made during calibration.
+Such metrics should complement visual inspection rather than replace it.
 
-If a locally attractive alternative is not part of the globally optimal route,
-the user can intentionally define a waypoint or segment boundary and request
-the desired routing character for that section.
-
-This preserves the general routing model without introducing road-specific
-exceptions.
-
-
-## 30.3 Alternative Routes per Segment
-
-A future planner may calculate and present several alternatives for an
-individual segment.
-
-For example:
-
-    Interlaken -> Brienz
-
-        Fast
-            A8 corridor
-
-        Curvy
-            northern shore
-
-        Very Curvy
-            alternative motorcycle-oriented route,
-            if a meaningful additional option exists
-
-The user may then select the preferred alternative before continuing with the
-next segment.
-
-This combines automated routing with explicit rider intent.
-
-
-## 30.4 Separation of Responsibilities
-
-The target architecture therefore consists conceptually of three layers:
-
-    TOUR PLANNING
-
-        journey
-        waypoints
-        segments
-        alternatives
-        per-segment intentions
-
-                |
-                v
-
-    ROUTING INTENTION
-
-        Fast / Curvy / Very Curvy
-        preferences
-        constraints
-
-                |
-                v
-
-    ROUTING ENGINE
-
-        BRouter
-        BRF cost model
-        OpenStreetMap data
-
-The BRouter cost model remains responsible for finding a good route between
-two defined points.
-
-The planning layer is responsible for deciding how multiple such routing
-decisions form a complete motorcycle journey.
-
-
-## 30.5 Initial Release Boundary
-
-The segment-based planning model is a target architecture, not a requirement
-for the initial release.
-
-The initial release remains intentionally limited to:
-
-    moto-fast
-    moto-curvy
-    moto-very-curvy
-
-used with BRouter and OsmAnd.
-
-This provides a useful standalone product while establishing the routing
-foundation for a future segment-based planner.
-
-The initial implementation should, however, avoid architectural decisions that
-would unnecessarily prevent later separation of:
-
-- routing character,
-- routing preferences,
-- routing constraints,
-- segment planning.
-
-
-## 31. Future Scope: Better Motorcycle-Road Characterisation
+## 31. Motorcycle-Road Character
 
 Road classification is an imperfect proxy for motorcycle attractiveness.
 
-Future versions may investigate additional OpenStreetMap and BRouter
-information where sufficiently reliable, including:
+Future research may investigate additional reliable signals such as:
 
-- estimated traffic
-- speed environment
-- settlement context
-- road continuity
-- surface quality
-- elevation characteristics
-- other reliable road attributes
+-   settlement context,
+-   traffic environment,
+-   road continuity,
+-   surface quality,
+-   elevation context,
+-   geometric sinuosity,
+-   heading-change or curve density.
 
-Any additional factor must satisfy the same generalisation requirement as the
-current model.
+No single signal shall automatically define a good motorcycle road.
 
+For example, geometric winding alone must not make a residential street
+more desirable than a high-quality secondary road.
 
-## 32. Future Scope: Geometric Curviness
+## 32. Optional Evidence Semantics
 
-The current model does not directly measure road curvature.
+Direct OpenStreetMap road evidence remains sufficient to produce a route.
+BRouter pseudo tags such as `estimated_traffic_class` and
+`estimated_town_class` are optional contextual evidence, not authoritative
+routing truth. Missing evidence is not low, high or neutral evidence and must
+not create a routing advantage.
 
-Future research may investigate properties such as:
+No H2 traffic modifier or H3 measured-data source is active in v1. Detailed
+H1/H2/H3 research, coverage analysis and calibration history is retained in
+`archive/experiments.md`.
 
-- heading changes
-- curve density
-- road sinuosity
-- direction-change frequency
+## 33. Settlement and Urban Routing
 
-Geometric curviness alone must not determine motorcycle attractiveness.
+Settlement context remains part of the normal road-character model, but v1
+does **not** contain a separate `avoid_cities` constraint or an additional
+urban-burden modifier.
 
-A winding residential street must not automatically outrank a high-quality
-secondary road.
+The urban/core investigation tested binary core detection, local-excursion
+proxies and two bounded strengths of a continuous evidence-based urban burden.
+None demonstrated sufficient generalisable routing benefit for production.
 
-Any geometric model would therefore need to remain part of a broader
-road-character model.
+The v1 requirement is:
 
+> Prefer a sensible motorcycle through-route or bypass when one exists,
+> without generically avoiding towns, villages or urban roads.
 
-## 33. Future Scope: Route Similarity Metrics
-
-Future testing tooling may quantify differences between profiles.
-
-Useful metrics may include:
-
-- shared route percentage
-- unique route percentage
-- distance difference
-- travel-time difference
-- ascent difference
-- motorway share
-- road-class distribution
-- geographic corridor similarity
-
-These metrics could provide a more objective basis for determining whether two
-profiles offer meaningfully different behaviour.
-
-They should complement rather than replace visual inspection.
-
-
-## 34. Future Scope: Stable Regression Baselines
-
-Once the initial release is stable, selected calibration routes may become
-formal regression baselines.
-
-Future model changes could then report:
-
-- unchanged route
-- small deviation
-- major corridor change
-- distance delta
-- travel-time delta
-- ascent delta
-
-Major routing changes should be reviewed before modifying a released profile.
-
+A future urban-routing feature requires materially better independent evidence
+or a new general hypothesis.
 
 ## 35. Non-Goals
 
-The initial project does not attempt to:
+The current project does not attempt to:
 
-- reproduce commercial motorcycle-routing algorithms
-- guarantee the objectively most scenic route
-- identify curves directly from road geometry
-- optimise routes for a specific motorcycle model
-- optimise routes for individual known roads
-- replace OsmAnd as a navigation application
-- provide a complete graphical tour planner
-- guarantee identical routing behaviour across all countries
-- maximise route differences between profiles
-- expose every internal routing parameter as a user profile
+-   reproduce proprietary commercial motorcycle-routing algorithms,
+-   guarantee the objectively most scenic route,
+-   maximise route differences between routing characters,
+-   optimise for individual named roads,
+-   expose every internal routing parameter,
+-   replace OsmAnd as the navigation application,
+-   treat ascent maximisation as motorcycle routing,
+-   equate motorway and toll semantics,
+-   create a separate user-facing profile for every combination of
+    preferences and constraints.
 
+## 36. Current Functional Baseline
 
-## 36. Initial Release Success Criteria
+The current validated functional baseline is:
 
-The initial release is successful when:
+``` text
+routing characters:
+    fast
+    curvy
+    very-curvy
 
-- Fast produces efficient and plausible motorcycle routes.
-- Curvy produces recognisably different and attractive alternatives where the
-  road network provides them.
-- Very Curvy provides a stronger but still plausible road-character
-  preference.
-- Profiles remain sensible where no meaningful alternatives exist.
-- Motorways are neither unintentionally prohibited nor unintentionally
-  preferred by all profiles.
-- Residential and service roads are not mistaken for desirable curvy roads.
-- Routing behaviour generalises beyond individual calibration routes.
-- Redundant development profiles are not exposed unnecessarily to users.
-- Profiles work offline with BRouter and OsmAnd on Android.
-- The development and calibration process is reproducible.
+constraints:
+    avoid_motorways
+    avoid_toll
 
+secondary preference:
+    hills:
+        off
+        moderate
+        strong
 
-## 37. Initial Release Candidate
+planning:
+    multiple segments
+    per-segment routing intention
+    BRouter alternative evaluation
+    combined GeoJSON
+    combined GPX
 
-The current initial release candidate consists of three user-facing profiles:
+routing foundation:
+    BRouter KinematicModel
+    generic motorcycle parameters
 
-    moto-fast
-    moto-curvy
-    moto-very-curvy
+navigation validation:
+    OsmAnd
+```
 
-The development model additionally retains:
+This baseline replaces the earlier architecture in which Fast/Curvy/Very
+Curvy and experimental `*-hilly` variants were treated primarily as a
+growing family of standalone profiles.
 
-    moto-fast-curvy
-    moto-curvy-hilly
-    moto-curvy-very-hilly
+## 37. Success Criteria
 
-This separation is intentional.
+The current architecture is successful when:
 
-The public interface should remain simple while the internal model retains
-sufficient parameter space for calibration, experimentation and future
-development.
+-   Fast produces efficient and plausible motorcycle routes.
+-   Curvy provides attractive alternatives where the network supports
+    them.
+-   Very Curvy expresses a stronger but still plausible road-character
+    preference.
+-   constraints remain independent of routing character.
+-   toll and motorway avoidance remain semantically distinct.
+-   hilliness influences route choice only when a useful alternative
+    exists.
+-   already mountainous routes are not distorted merely to gain more
+    ascent.
+-   segment-specific intentions can be combined into one continuous
+    tour.
+-   generated GPX can be used in OsmAnd.
+-   routing rules generalise beyond calibration routes.
+-   the public routing model remains understandable despite increasing
+    internal sophistication.
 
-## Time-oriented routing and vehicle model
+## v1 Routing-Core Freeze
 
-The routing model shall separate three concepts:
+The validated v1 functional baseline is frozen for release preparation.
+Fast, Curvy and Very Curvy are the accepted primary routing characters;
+`avoid_motorways` and `avoid_toll` are independent constraints; and hilliness
+remains a secondary planner preference with `off`, `moderate` and `strong`.
 
-1. routing character,
-2. routing constraints,
-3. vehicle characteristics.
+Route convergence is valid where geography or hard constraints leave no
+meaningful alternative. No routing character is required to differ merely for
+the sake of differentiation.
 
-### Fast routing
-
-The Fast routing character shall primarily optimise expected travel time.
-
-It shall not explicitly prefer motorways or major roads. Such roads shall only
-be selected when their expected travel time makes them preferable.
-
-Adding a routing constraint must not produce a materially faster route than
-the equivalent unconstrained Fast route under the same vehicle model.
-
-### Curvy routing
-
-Curvy routing shall use the same time-oriented foundation as Fast while adding
-a moderate preference for roads with desirable motorcycle-routing
-characteristics.
-
-### Very Curvy routing
-
-Very Curvy shall use the same time-oriented foundation with a stronger
-road-character preference than Curvy.
-
-The difference between Curvy and Very Curvy shall therefore represent the
-amount of additional travel-time cost the routing model is willing to accept
-in exchange for more desirable motorcycle roads.
-
-### Constraints
-
-Constraints are independent of routing character.
-
-Examples include:
-
-- avoid motorways,
-- avoid toll roads.
-
-A constraint limits or penalises possible routes but does not define the
-routing character itself.
-
-### Vehicle characteristics
-
-The architecture shall allow the time-oriented routing model to use
-motorcycle-specific vehicle characteristics.
-
-The internal representation may include parameters such as:
-
-- total vehicle/rider/luggage mass,
-- aerodynamic resistance,
-- rolling resistance,
-- target speed.
-
-A future user interface should expose meaningful motorcycle and rider
-properties rather than requiring users to understand low-level routing-engine
-parameters.
-
-Vehicle-specific routing is a future capability. The initial implementation
-uses a generic motorcycle model.
+Further routing-weight changes require a reproducible regression defect or
+materially new independent evidence.

@@ -1,710 +1,762 @@
-# BRouter Motorcycle Profiles – Development Setup
+# BRouter Motorcycle -- Development Guide
 
 ## 1. Purpose
 
-This document describes how to set up a local development and calibration
-environment for the BRouter Motorcycle Profiles project on macOS.
+This document describes the current development environment,
+implementation architecture and validation workflow for the BRouter
+Motorcycle project.
 
-The reference setup uses:
+It documents the system as it exists now. Historical experiments are
+included only where they explain a current design decision.
 
-- macOS on Apple Silicon
-- Homebrew
-- OpenJDK
-- BRouter standalone server
-- Python virtual environment
-- local BRouter routing segments
-- generated `.brf` profiles
-- automated smoke and calibration tests
-- browser-based comparison maps
+The reference development environment is:
 
-The Android device running BRouter and OsmAnd is the target environment.
+-   macOS on Apple Silicon
+-   Homebrew
+-   OpenJDK
+-   upstream BRouter standalone server
+-   Python virtual environment
+-   local BRouter `.rd5` routing segments
+-   BRouter KinematicModel-based motorcycle routing
+-   YAML-based segment planning
+-   GeoJSON and GPX output
+-   OsmAnd as the current navigation target
 
-The Mac is used only for development, calibration and validation.
+The Mac is used for development, testing and route planning. Android
+with BRouter/OsmAnd remains the target navigation environment.
 
+## 2. Current Architecture
 
-## 2. Repository Structure
+The current routing flow is:
 
-The relevant project structure is:
+``` text
+YAML tour definition
+        |
+        v
+segment routing intention
+        |
+        +-- character: fast | curvy | very-curvy
+        |
+        +-- constraints:
+        |      avoid_motorways
+        |      avoid_toll
+        |
+        +-- secondary preferences:
+               hills: off | moderate | strong
+        |
+        v
+tools/profile_compiler.py
+        |
+        v
+compiled KinematicModel BRF
+        |
+        v
+BRouter
+        |
+        +-- baseline route
+        +-- alternatives when required
+        |
+        v
+planner-level alternative selection
+        |
+        v
+segment result
+        |
+        v
+combined GeoJSON + GPX
+        |
+        v
+OsmAnd
+```
 
-    brouter-motorcycle/
-    ├── config/
-    │   └── presets.yaml
-    ├── docs/
-    │   ├── development.md
-    │   ├── routing-model.md
-    │   ├── specification.md
-    │   └── testing.md
-    ├── profiles/
-    │   ├── moto-fast.brf
-    │   ├── moto-fast-curvy.brf
-    │   ├── moto-curvy.brf
-    │   ├── moto-very-curvy.brf
-    │   ├── moto-curvy-hilly.brf
-    │   └── moto-curvy-very-hilly.brf
-    ├── release/
-    │   ├── moto-fast.brf
-    │   ├── moto-curvy.brf
-    │   └── moto-very-curvy.brf
-    ├── src/
-    │   └── moto-base.brf
-    ├── tools/
-    │   ├── generate_profiles.py
-    │   ├── run_calibration_tests.py
-    │   ├── run_smoke_tests.py
-    │   └── serve_results.py
-    └── requirements-dev.txt
+The important architectural separation is:
 
-`src/moto-base.brf` is the canonical source profile.
+``` text
+routing character
+    !=
+routing constraints
+    !=
+secondary preferences
+    !=
+vehicle characteristics
+```
 
-`profiles/` contains all development and experimental profiles.
+These dimensions may influence the same route, but they have different
+semantics and must not be collapsed into a growing list of user-facing
+profiles.
 
-`release/` contains only the current user-facing release candidates.
+## 3. Relevant Repository Structure
 
+The current planner-related structure is conceptually:
 
-## 3. Prerequisites
+``` text
+brouter-motorcycle/
+├── docs/
+│   ├── development.md
+│   ├── routing-model.md
+│   ├── specification.md
+│   └── testing.md
+├── examples/
+│   ├── alpine-tour.yaml
+│   └── intent-tests/
+├── output/
+│   └── compiled-profiles/
+├── profiles/
+│   └── ...
+├── release/
+│   └── ...
+├── src/
+│   ├── moto-base.brf
+│   └── moto-kinematic-base.brf
+├── tests/
+├── tools/
+│   ├── generate_profiles.py
+│   ├── plan_route.py
+│   ├── profile_compiler.py
+│   ├── run_calibration_tests.py
+│   ├── run_kinematic_tests.py
+│   ├── run_smoke_tests.py
+│   └── serve_results.py
+└── requirements-dev.txt
+```
 
-The setup assumes Homebrew is installed.
+For the current segment planner:
+
+-   `src/moto-kinematic-base.brf` is the canonical KinematicModel
+    routing source.
+-   `tools/profile_compiler.py` compiles routing intentions into BRouter
+    profiles.
+-   `tools/plan_route.py` routes segments, evaluates alternatives where
+    required, and creates complete tour output.
+-   `output/compiled-profiles/` contains generated intent profiles.
+-   `examples/` contains reproducible planner examples and regression
+    cases.
+
+`src/moto-base.brf`, the traditional generated profiles under
+`profiles/`, and the release profiles remain useful for historical
+comparison and the earlier standalone-profile workflow. They are not the
+canonical source for the current segment planner.
+
+## 4. Prerequisites
+
+Verify Homebrew:
+
+``` bash
+brew --prefix
+```
+
+On Apple Silicon this normally returns:
+
+``` text
+/opt/homebrew
+```
+
+## 5. Java and BRouter
+
+Install OpenJDK:
+
+``` bash
+brew install openjdk
+```
+
+Make the JVM visible to macOS:
+
+``` bash
+sudo ln -sfn "$(brew --prefix openjdk)/libexec/openjdk.jdk" \
+  /Library/Java/JavaVirtualMachines/openjdk.jdk
+```
 
 Verify:
 
-    brew --prefix
+``` bash
+java -version
+```
 
-On Apple Silicon this typically returns:
+Clone upstream BRouter outside this project:
 
-    /opt/homebrew
+``` bash
+mkdir -p ~/opt
+cd ~/opt
+git clone https://github.com/abrensch/brouter.git
+cd brouter
+```
 
+Build the standalone server:
 
-## 4. Install Java
+``` bash
+./gradlew fatJar
+```
 
-BRouter requires Java.
+A full `./gradlew clean build` is not required for this project.
 
-Install OpenJDK with Homebrew:
-
-    brew install openjdk
-
-Homebrew installs OpenJDK as a keg-only package.
-
-To make the JVM visible to macOS Java tooling, create the recommended symlink:
-
-    sudo ln -sfn "$(brew --prefix openjdk)/libexec/openjdk.jdk" \
-      /Library/Java/JavaVirtualMachines/openjdk.jdk
-
-Verify:
-
-    java -version
-
-A working setup should return an OpenJDK runtime.
-
-The reference development environment currently uses:
-
-    OpenJDK 26.0.2.1
-
-The exact patch version is not considered normative.
-
-
-## 5. Clone BRouter
-
-BRouter is kept outside the project repository.
-
-A convenient location is:
-
-    ~/opt/brouter
-
-Install:
-
-    mkdir -p ~/opt
-    cd ~/opt
-    git clone https://github.com/abrensch/brouter.git
-    cd brouter
-
-The reference environment currently tracks the upstream `master` branch.
-
-
-## 6. Build the BRouter Standalone Server
-
-A fresh BRouter source checkout does not contain the standalone server JAR.
-
-Build the fat JAR:
-
-    ./gradlew fatJar
-
-The full command:
-
-    ./gradlew clean build
-
-is not required for this project.
-
-During development, a full build may fail in PMD analysis even though the
-standalone routing server itself can be built successfully.
-
-For this project, `fatJar` is the relevant build target.
-
-After the build, verify:
-
-    ls -lh brouter-server/build/libs/
-
-A BRouter server JAR should be present.
-
-
-## 7. Start the BRouter Standalone Server
+## 6. Start the BRouter Standalone Server
 
 From the BRouter repository:
 
-    cd ~/opt/brouter
-    ./misc/scripts/standalone/server.sh
+``` bash
+cd ~/opt/brouter
+./misc/scripts/standalone/server.sh
+```
 
-The server should start and print the BRouter version.
+The planner expects the local endpoint:
 
-The default local routing endpoint used by this project is:
+``` text
+http://localhost:17777/brouter
+```
 
-    http://localhost:17777/brouter
+Keep the server running while executing routing tests or
+`plan_route.py`.
 
-Keep this terminal running while executing smoke or calibration tests.
+## 7. Routing Segments
 
+BRouter requires `.rd5` routing data.
 
-## 8. Install Routing Segments
+The reference directory is:
 
-BRouter requires `.rd5` routing segment files.
-
-Create the local segment directory if necessary:
-
-    mkdir -p ~/opt/brouter/misc/segments4
-
-For Switzerland, the relevant segments must be downloaded from the BRouter
-segment server.
-
-For example:
-
-    curl -L \
-      https://brouter.de/brouter/segments4/E5_N45.rd5 \
-      -o ~/opt/brouter/misc/segments4/E5_N45.rd5
-
-Additional test routes may require additional `.rd5` tiles.
-
-If BRouter reports that a segment is missing, download the required tile and
-place it in the same `segments4` directory.
-
-
-## 9. Create the Python Development Environment
-
-From the project root:
-
-    python3 -m venv .venv
-    source .venv/bin/activate
-
-Then install development dependencies:
-
-    python3 -m pip install -r requirements-dev.txt
-
-The current development requirements include PyYAML.
-
-Verify:
-
-    python3 -m pip show PyYAML
-
-The reference environment currently uses:
-
-    Python 3.9.6
-    PyYAML 6.0.3
-
-
-## 10. Recreate the Virtual Environment After Moving the Project
-
-Python virtual environments can contain absolute paths.
-
-If the project directory is renamed or moved, an existing `.venv` may fail
-with an error similar to:
-
-    bad interpreter:
-    .../.venv/bin/python3: no such file or directory
-
-In that case, recreate the environment:
-
-    deactivate 2>/dev/null || true
-    rm -rf .venv
-
-    python3 -m venv .venv
-    source .venv/bin/activate
-
-    python3 -m pip install -r requirements-dev.txt
-
-
-## 11. Generate Profiles
-
-Generate all development and release profiles:
-
-    python tools/generate_profiles.py
-
-The generator creates:
-
-    profiles/
-
-containing all development profiles, and:
-
-    release/
-
-containing only user-facing release profiles.
-
-List configured presets:
-
-    python tools/generate_profiles.py --list
-
-
-## 12. Link Generated Profiles into BRouter
-
-The local BRouter standalone server reads profiles from:
-
-    ~/opt/brouter/misc/profiles2/
-
-During development, symbolic links are preferable to copying files.
-
-From the project root:
-
-    for f in profiles/*.brf; do
-      ln -sf "$(pwd)/$f" \
-        ~/opt/brouter/misc/profiles2/"$(basename "$f")"
-    done
-
-Verify:
-
-    ls -l ~/opt/brouter/misc/profiles2/moto-*.brf
-
-This setup means regenerated profiles are immediately visible to BRouter
-without manual copying.
-
-Because these links live inside the upstream BRouter Git repository, they
-should be ignored locally rather than added to BRouter's `.gitignore`.
-
-From the BRouter repository:
-
-    printf '\n# Local motorcycle development profiles\nmisc/profiles2/moto-*.brf\n' \
-      >> .git/info/exclude
-
-This keeps the upstream BRouter working tree clean without modifying tracked
-BRouter files.
-
-
-## 13. Adding New Development Profiles
-
-When a new profile is added to `config/presets.yaml`, regenerate profiles:
-
-    python tools/generate_profiles.py
-
-Then rerun the symlink loop:
-
-    for f in profiles/*.brf; do
-      ln -sf "$(pwd)/$f" \
-        ~/opt/brouter/misc/profiles2/"$(basename "$f")"
-    done
-
-If this step is skipped, BRouter may report:
-
-    profile <name>.brf does not exist
-
-
-## 14. Smoke Tests
-
-Start the BRouter standalone server first.
-
-Then, from the project root:
-
-    python tools/run_smoke_tests.py
-
-The smoke test verifies that all development profiles can calculate a route
-successfully.
-
-A successful run should contain only `[OK]` results.
-
-
-## 15. Manual BRouter HTTP Test
-
-A direct route request can be useful when debugging.
+``` text
+~/opt/brouter/misc/segments4/
+```
 
 Example:
 
-    curl -G 'http://localhost:17777/brouter' \
-      --data-urlencode 'lonlats=7.2468,47.1368|6.9293,46.9896' \
-      --data-urlencode 'profile=moto-fast' \
-      --data-urlencode 'alternativeidx=0' \
-      --data-urlencode 'format=geojson'
+``` bash
+mkdir -p ~/opt/brouter/misc/segments4
+
+curl -L \
+  https://brouter.de/brouter/segments4/E5_N45.rd5 \
+  -o ~/opt/brouter/misc/segments4/E5_N45.rd5
+```
+
+Additional routes may require additional tiles.
+
+## 8. Python Environment
+
+From the project root:
+
+``` bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements-dev.txt
+```
+
+PyYAML is required by the planner.
+
+If the repository is moved and the virtual environment contains stale
+absolute paths, recreate it:
+
+``` bash
+deactivate 2>/dev/null || true
+rm -rf .venv
+
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements-dev.txt
+```
+
+## 9. KinematicModel Foundation
+
+The current planner uses BRouter's KinematicModel as the time-oriented
+routing foundation.
+
+The earlier custom Fast model approximated travel-time preference
+through a speed-derived cost factor. Tests showed that reported travel
+time was difficult to interpret reliably. KinematicModel provides a
+physically motivated model that accounts for speed,
+acceleration/deceleration, rolling resistance, aerodynamic resistance,
+elevation and junction/curve effects.
+
+The current routing characters share this foundation:
+
+``` text
+Fast
+    expected travel time dominates
+
+Curvy
+    time-oriented routing
+    + moderate motorcycle-road preference
+
+Very Curvy
+    time-oriented routing
+    + stronger motorcycle-road preference
+```
+
+The routing character therefore controls the trade-off between expected
+travel time and desirable motorcycle-road character.
+
+## 10. Motorcycle Parameter Finding
+
+A generic touring-motorcycle experiment used approximately:
+
+``` text
+total weight:        340 kg
+rolling resistance:   50 N
+aerodynamic factor:  0.35
+target speed:         120 km/h
+```
+
+Reference results:
+
+  ------------------------------------------------------------------------
+  Route       Parameters      Distance        Time      Ascent        Cost
+  ----------- ------------ ----------- ----------- ----------- -----------
+  Bern -\>    car-like        110.5 km    74.2 min       416 m      126203
+  Luzern                                                       
+
+  Bern -\>    motorcycle      110.5 km    68.9 min       416 m      121516
+  Luzern                                                       
+
+  Thun -\>    car-like        119.3 km   145.0 min      2673 m      197288
+  Andermatt                                                    
+
+  Thun -\>    motorcycle      119.3 km   128.0 min      2673 m      183699
+  Andermatt                                                    
+  ------------------------------------------------------------------------
+
+In these tests, vehicle parameters changed time and cost without
+changing the selected route.
+
+This supports keeping vehicle characteristics separate from routing
+intention.
+
+The current implementation uses a generic motorcycle model. A future
+application may derive KinematicModel parameters from understandable
+inputs such as motorcycle weight, rider weight, luggage and motorcycle
+type. Low-level physical coefficients should normally remain hidden from
+users.
+
+## 11. Profile Compiler
+
+`tools/profile_compiler.py` converts a segment routing intention into a
+KinematicModel BRF.
+
+Example intention:
+
+``` yaml
+routing:
+  character: curvy
+  preferences:
+    hills: strong
+  constraints:
+    avoid_motorways: false
+    avoid_toll: false
+```
+
+The compiler currently maps the routing character to the corresponding
+curviness level and applies profile-level constraints such as motorway
+and toll avoidance.
+
+Generated profiles are written to:
+
+``` text
+output/compiled-profiles/
+```
+
+and linked into the BRouter profile directory.
+
+The profile name contains a hash of the profile-relevant intention.
+Planner-only preferences such as `hills` do not need a distinct BRF when
+they do not change the underlying cost model.
+
+## 12. Segment Planner
+
+`tools/plan_route.py` reads a YAML tour definition and routes each
+segment independently.
+
+Example:
+
+``` yaml
+name: Alpine Tour
+
+segments:
+  - from:
+      name: Biel
+      lon: 7.2468
+      lat: 47.1368
+    to:
+      name: Bern
+      lon: 7.4474
+      lat: 46.9480
+    routing:
+      character: fast
+
+  - from:
+      name: Bern
+      lon: 7.4474
+      lat: 46.9480
+    to:
+      name: Thun
+      lon: 7.6292
+      lat: 46.7571
+    routing:
+      character: curvy
+```
+
+Run:
+
+``` bash
+python tools/plan_route.py examples/alpine-tour.yaml
+```
+
+The planner:
+
+1.  validates the tour,
+2.  normalises each routing intention,
+3.  compiles the required BRouter profile,
+4.  routes each segment,
+5.  evaluates BRouter alternatives when a planner-level preference
+    requires it,
+6.  joins the segment geometries,
+7.  writes GeoJSON,
+8.  writes GPX with waypoints and a continuous track.
+
+## 13. Routing Constraints
+
+The currently validated constraints are:
+
+``` text
+avoid_motorways
+avoid_toll
+```
+
+They are intentionally independent.
+
+A toll road is not semantically identical to a motorway.
+Country-specific road charging must not be encoded as a generic
+equivalence between the two controls.
+
+### Martigny -\> Aosta regression case
+
+Observed results:
+
+  Intention                  Distance        Time   Ascent     Cost
+  ------------------------ ---------- ----------- -------- --------
+  Fast                        73.2 km    83.9 min   1473 m   115474
+  Fast + avoid toll           77.9 km   102.1 min   2023 m   140871
+  Fast + avoid motorways      73.2 km    83.9 min   1473 m   115474
+
+The Fast and Fast + avoid-motorways geometries were identical. The
+avoid-toll geometry differed.
+
+This is particularly useful around the Great St Bernard, because it
+demonstrates that road class and toll semantics must be evaluated
+separately. It is a regression case, not a route-specific exception in
+the implementation.
+
+## 14. Hilliness
+
+Hilliness is a secondary preference, not a routing character.
+
+The user-facing model is:
+
+``` text
+hills: off
+hills: moderate
+hills: strong
+```
+
+Curviness is considered more important than hilliness for the current
+motorcycle-routing goal.
+
+Therefore:
+
+``` text
+Curvy + hills: strong
+```
+
+means:
+
+``` text
+find a good Curvy route first,
+then prefer a meaningfully hillier acceptable alternative
+```
+
+It does not mean:
+
+``` text
+maximise ascent
+```
+
+## 15. Hilliness Alternative Selection
+
+Hilliness is currently implemented at planner level using BRouter
+alternatives.
+
+Conceptually:
+
+``` text
+baseline route
+      |
+      v
+request alternatives
+      |
+      v
+compare time and ascent characteristics
+      |
+      v
+is a meaningfully hillier alternative acceptable?
+      |
+   yes|no
+      |
+      +---- yes -> select alternative
+      |
+      +---- no  -> retain baseline
+```
+
+The current implementation uses general thresholds for additional
+ascent, ascent density and acceptable time increase. `moderate` has a
+tighter time budget than `strong`.
+
+The important design rule is that the algorithm must remain generic. It
+must not contain special cases for named roads or calibration routes.
+
+## 16. Hilliness Regression Tests
+
+Current validated cases:
+
+  ----------------------------------------------------------------------------------
+  Route       Character   Hills        Selected   Distance    Time   Ascent     Cost
+                                          route                             
+  ----------- ----------- ---------- ---------- ---------- ------- -------- --------
+  Biel -\>    Curvy       Strong          alt 2    40.3 km    48.2    810 m    70011
+  Neuchatel                                                    min          
+
+  Fribourg    Curvy       Moderate        alt 2   172.9 km   185.6   2090 m   308341
+  -\> Altdorf                                                  min          
+
+  Thun -\>    Curvy       Strong       baseline   113.3 km   132.1   2674 m   196336
+  Andermatt                                                    min          
+  ----------------------------------------------------------------------------------
+
+The Thun -\> Andermatt case is especially important: the baseline route
+is already strongly mountainous. `strong` therefore does not force a
+worse alternative simply to accumulate more ascent.
+
+Run the current examples:
+
+``` bash
+python tools/plan_route.py \
+  examples/intent-tests/biel-neuchatel-curvy-hills-strong.yaml
+
+python tools/plan_route.py \
+  examples/intent-tests/fribourg-altdorf-curvy-hills-moderate.yaml
+
+python tools/plan_route.py \
+  examples/intent-tests/thun-andermatt-curvy-hills-strong.yaml
+```
+
+## 17. Inspecting BRouter Alternatives
+
+BRouter alternatives can be requested using `alternativeidx`.
+
+The Curvy Biel -\> Neuchatel diagnostic set produced:
+
+    Alternative   Distance       Time   Ascent    Cost
+  ------------- ---------- ---------- -------- -------
+              0    32.7 km   29.9 min     61 m   52215
+              1    35.6 km   44.7 min    211 m   65533
+              2    40.3 km   48.2 min    810 m   70011
+              3    32.4 km   42.7 min     54 m   74732
+
+This demonstrates why alternative number or cost alone has no useful
+semantic meaning. The planner must evaluate alternatives against the
+user's preference.
+
+## 18. GPX and GeoJSON Output
+
+The planner writes:
+
+``` text
+output/<tour-name>.geojson
+output/<tour-name>.gpx
+```
+
+The GPX contains:
+
+-   tour waypoints,
+-   one continuous route track.
+
+The generated multi-segment GPX has been validated in OsmAnd. OsmAnd may
+show the imported track most clearly when it is selected for navigation.
+
+## 19. Manual BRouter HTTP Test
+
+A direct request remains useful for debugging:
+
+``` bash
+curl -G 'http://localhost:17777/brouter' \
+  --data-urlencode 'lonlats=7.2468,47.1368|6.9293,46.9896' \
+  --data-urlencode 'profile=<compiled-profile-name>' \
+  --data-urlencode 'alternativeidx=0' \
+  --data-urlencode 'format=geojson'
+```
 
 A successful response contains a GeoJSON FeatureCollection.
 
+## 20. Debugging BRouter Errors
 
-## 16. Debugging HTTP 500 Errors
-
-When the test runner reports:
-
-    HTTP Error 500: Internal Server Error
-
-the useful error message usually appears in the terminal running the BRouter
-standalone server.
+For HTTP 500 responses, inspect the terminal running the standalone
+server.
 
 Typical errors include:
 
-    ParseException ...
-    unknown lookup value ...
-    unknown expression ...
-    profile ... does not exist
+``` text
+ParseException ...
+unknown lookup value ...
+unknown expression ...
+profile ... does not exist
+```
 
-The first `ParseException` is usually the most useful diagnostic line.
+The first parse error is normally the most useful diagnostic line.
 
+BRouter expression-language findings from development include:
 
-## 17. BRouter Profile Syntax Notes
+-   the comparison operator is `lesser`, not `less`,
+-   lookup values must exist in BRouter lookup tables,
+-   OSM lookup fields cannot always be treated as ordinary numeric
+    expressions,
+-   `.brf` files must not contain Markdown code fences.
 
-Several BRouter expression-language details were encountered during setup.
+## 21. Legacy Profile Generation and Calibration
 
-Examples:
+The repository still contains the earlier profile-generation and
+calibration tooling:
 
-- the comparison operator is `lesser`, not `less`
-- lookup values must exist in BRouter's lookup tables
-- OSM lookup fields cannot always be used as ordinary numeric expressions
-- generated `.brf` files must not contain Markdown code fences
+``` text
+tools/generate_profiles.py
+tools/run_smoke_tests.py
+tools/run_calibration_tests.py
+tools/serve_results.py
+src/moto-base.brf
+profiles/
+release/
+```
 
-If a generated profile fails, inspect the BRouter server output before changing
-the routing model.
+This tooling remains useful for regression comparison and for
+understanding the development history of Fast, Curvy and Very Curvy.
 
+It must not be confused with the current segment-planner architecture.
 
-## 18. Calibration Tests
+In particular, earlier experimental profiles such as:
 
-Run the full calibration suite:
+``` text
+moto-fast-curvy
+moto-curvy-hilly
+moto-curvy-very-hilly
+```
 
-    python tools/run_calibration_tests.py
+are not additional user-facing routing characters in the current model.
 
-The calibration runner:
+Hilliness is now represented as a secondary planner preference.
 
-- calculates all configured development profiles
-- records route statistics
-- writes GeoJSON results
-- creates comparison maps
-- writes a CSV report
+## 22. Validation Method
 
-Generated output is stored under:
+Changes to routing behaviour should follow:
 
-    tests/results/
+``` text
+observation
+    ->
+hypothesis
+    ->
+general implementation
+    ->
+independent validation
+```
 
-This directory is considered generated test output.
+Do not optimise for a single named road.
 
+Useful validation dimensions include:
 
-## 19. Calibration Results
+-   route geometry,
+-   distance,
+-   expected time,
+-   ascent,
+-   cost,
+-   motorway behaviour,
+-   toll behaviour,
+-   robustness where no meaningful alternative exists,
+-   behaviour on geographically different routes.
 
-Typical result structure:
-
-    tests/results/
-    ├── calibration.csv
-    ├── bern-luzern/
-    │   ├── comparison.html
-    │   ├── moto-fast.geojson
-    │   ├── moto-curvy.geojson
-    │   └── ...
-    ├── biel-bienne-neuchatel/
-    ├── fribourg-altdorf/
-    ├── interlaken-brienz/
-    └── ...
-
-The exact set of routes may evolve over time.
-
-
-## 20. Serve Comparison Results
-
-Do not open the generated comparison HTML files directly using `file://`.
-
-The OpenStreetMap tile service requires a valid HTTP referrer and may return
-HTTP 403 when the page is opened directly from the filesystem.
-
-Instead run:
-
-    python tools/serve_results.py
-
-The script starts a small local HTTP server and opens the calibration result
-index in the browser.
-
-The local URL is typically:
-
-    http://127.0.0.1:8080/tests/results/index.html
-
-If the browser does not open automatically:
-
-    open http://127.0.0.1:8080/tests/results/index.html
-
-
-## 21. Visual Calibration Workflow
-
-A normal calibration cycle is:
-
-    1. edit src/moto-base.brf
-    2. generate profiles
-    3. run smoke tests
-    4. run calibration tests
-    5. serve comparison results
-    6. visually inspect route behaviour
-    7. accept, adjust or revert the change
-
-Commands:
-
-    python tools/generate_profiles.py
-    python tools/run_smoke_tests.py
-    python tools/run_calibration_tests.py
-    python tools/serve_results.py
-
-The BRouter standalone server must already be running.
-
-
-## 22. Development Profiles vs Release Profiles
-
-The project deliberately separates:
-
-    profiles/
-
-from:
-
-    release/
-
-`profiles/` contains the complete development parameter space.
-
-This currently includes experimental profiles used for calibration.
-
-`release/` contains only the profiles intended for normal users.
-
-The current release set is:
-
-    moto-fast
-    moto-curvy
-    moto-very-curvy
-
-The current experimental profiles include:
-
-    moto-fast-curvy
-    moto-curvy-hilly
-    moto-curvy-very-hilly
-
+Visual inspection remains important because aggregate metrics alone
+cannot determine whether a motorcycle route is attractive.
 
 ## 23. Git Policy
 
-The following should be committed:
+Commit:
 
-- `src/moto-base.brf`
-- `config/presets.yaml`
-- `profiles/*.brf`
-- `release/*.brf`
-- development tools
-- documentation
+-   source profiles,
+-   planner/compiler code,
+-   YAML regression cases,
+-   documentation,
+-   stable test definitions,
+-   intentionally retained release profiles.
 
-The following should not be committed:
+Do not commit transient planner output unless it is deliberately being
+used as a regression fixture.
 
-- `.venv/`
-- Python cache files
-- macOS `.DS_Store`
-- generated calibration output under `tests/results/`
+Generated runtime output such as temporary GeoJSON, GPX and compiled
+intent profiles should normally remain ignored.
 
-A suitable `.gitignore` therefore includes at least:
+## 24. Experimental Evidence Work
 
-    .venv/
-    __pycache__/
-    *.pyc
-    .DS_Store
-    tests/results/
+Traffic, pseudo-tag and urban-routing semantics were investigated extensively,
+including H1/H2/H3 evidence separation, missing-value semantics, gated H2
+traffic, urban rolling windows, `strict_core`, local excursions and bounded
+`urban_burden` v0.1/v0.2 routing tests.
 
+These experiments did not establish sufficient general routing benefit to add
+a new traffic or urban-burden modifier to v1. Detailed hypotheses, catalogues,
+results and rejected approaches are retained in `archive/experiments.md`.
 
-## 24. Why Generated Profiles Are Committed
+## 25. Current Development Priorities
 
-Generated `.brf` files are intentionally kept in the repository.
+The validated planner dimensions remain Fast, Curvy and Very Curvy; independent
+`avoid_motorways` and `avoid_toll` constraints; and hills as off, moderate or
+strong.
 
-This has two advantages.
+`avoid_cities` is not a validated v1 feature. The urban investigation is
+closed for v1. The next phase focuses on regression and behaviour testing,
+release tooling, reproducibility and validation of the complete routing
+character set.
 
-For users:
+## 27. Reproducibility
 
-- release profiles can be downloaded directly
-- Python is not required
+The project should remain reproducible without machine-specific
+assumptions.
 
-For developers:
+Documentation should therefore prefer:
 
-- generated output can be reviewed in Git
-- unexpected generator changes are visible
-- calibration profiles are reproducible
+``` text
+~/opt/brouter
+project-relative paths
+environment variables where appropriate
+```
 
+over personal absolute paths.
 
-## 25. Reference Development Versions
+A fresh development machine should be able to reproduce the planner
+with:
 
-The current reference setup used during development includes:
+1.  Java,
+2.  upstream BRouter,
+3.  required `.rd5` tiles,
+4.  the Python environment,
+5.  this repository,
+6.  the documented commands above.
 
-    BRouter source:
-        upstream master
-        v1.7.10-4-g7b0be763 during current calibration
+## v1 Routing-Core Freeze
 
-    OpenJDK:
-        26.0.2.1
+The routing core has passed final acceptance and is frozen for v1 release
+preparation.
 
-    Python:
-        3.9.6
+Do not continue tuning routing weights merely to increase visual differences
+between Fast, Curvy and Very Curvy. Convergence on constrained corridors is
+valid behaviour.
 
-    PyYAML:
-        6.0.3
+A routing-core change after this point requires one of:
 
-These versions document the environment used during development.
+1. a reproducible regression defect,
+2. materially new independent routing evidence,
+3. a deliberate post-v1 feature decision.
 
-They are not intended as strict minimum or maximum version requirements unless
-future testing identifies a compatibility constraint.
-
-
-## 26. Target Android Environment
-
-The Mac development environment is not the deployment target.
-
-The user-facing profiles are intended for:
-
-    Android
-      +
-    BRouter
-      +
-    OsmAnd
-
-The release profiles from:
-
-    release/
-
-are the files intended to be transferred to the Android BRouter profile
-directory.
-
-Android installation and OsmAnd integration should be documented separately
-from the macOS development setup.
-
-
-## 27. Reproducibility Goal
-
-A new developer should be able to:
-
-1. clone this repository,
-2. install Java,
-3. clone and build BRouter,
-4. install required routing segments,
-5. create the Python environment,
-6. generate profiles,
-7. link them into BRouter,
-8. run smoke tests,
-9. run calibration tests,
-10. inspect comparison maps,
-
-without requiring knowledge of the original development machine.
-
-Personal paths and local machine names must therefore not be required by the
-project documentation.
-
-## Kinematic routing experiment
-
-During development of segment-based routing, the original Fast cost model
-revealed an important limitation.
-
-The original model approximated travel-time preference through a custom
-speed-derived cost factor. On Bern -> Luzern this produced results whose
-reported travel times were difficult to interpret reliably.
-
-BRouter's KinematicModel was therefore evaluated as an alternative foundation
-for time-oriented motorcycle routing.
-
-### Reference test: Bern -> Luzern
-
-The initial KinematicModel test used parameters close to BRouter's car-vario
-profile, with a target speed of 120 km/h.
-
-Results:
-
-| Model | Distance | Time | Ascent | Cost |
-|---|---:|---:|---:|---:|
-| Kinematic Fast | 110.5 km | 74.2 min | 416 m | 126203 |
-| Kinematic Fast, avoid motorways | 84.2 km | 116.3 min | 873 m | 152114 |
-
-This satisfies an important invariant:
-
-    time(Fast) <= time(Fast + additional constraints)
-
-The unrestricted Fast route may be longer in distance while still being
-faster because it can use higher-speed roads.
-
-### Motorcycle parameter experiment
-
-A generic touring motorcycle model was then tested with:
-
-- total weight: 340 kg
-- rolling resistance force: 50 N
-- aerodynamic factor: 0.35
-- target speed: 120 km/h
-
-The remaining KinematicModel parameters were deliberately left unchanged
-during this experiment in order to change only a limited number of variables.
-
-#### Bern -> Luzern
-
-| Parameters | Distance | Time | Ascent | Cost |
-|---|---:|---:|---:|---:|
-| Car-like | 110.5 km | 74.2 min | 416 m | 126203 |
-| Motorcycle | 110.5 km | 68.9 min | 416 m | 121516 |
-
-#### Thun -> Andermatt
-
-| Parameters | Distance | Time | Ascent | Cost |
-|---|---:|---:|---:|---:|
-| Car-like | 119.3 km | 145.0 min | 2673 m | 197288 |
-| Motorcycle | 119.3 km | 128.0 min | 2673 m | 183699 |
-
-In both tests the selected route remained identical while travel-time and cost
-changed. The effect was larger on the alpine route.
-
-### Current conclusion
-
-KinematicModel is the preferred candidate for the new time-oriented routing
-foundation.
-
-The intended model is:
-
-    Fast
-        = minimise expected travel time
-
-    Curvy
-        = travel-time model
-        + moderate motorcycle road-character preference
-
-    Very Curvy
-        = travel-time model
-        + stronger motorcycle road-character preference
-
-Hard constraints such as avoiding motorways remain orthogonal to the routing
-character.
-
-The previous routing model remains in place until the KinematicModel-based
-profiles have been validated against the calibration route set.
-
-### Future vehicle model
-
-Vehicle characteristics should eventually be separated from routing
-intentions.
-
-A future planner or application may accept user-friendly inputs such as:
-
-- motorcycle type
-- motorcycle weight
-- rider weight
-- luggage weight
-- preferred/target speed
-
-These inputs can be translated internally into KinematicModel parameters.
-
-Users should not normally be required to enter low-level parameters such as
-aerodynamic or rolling-resistance coefficients directly.
-
-This would allow routing to depend on three independent dimensions:
-
-    route segment
-        +
-    routing intention
-        +
-    motorcycle characteristics
-        |
-        v
-    BRouter profile / parameters
-        |
-        v
-    route
-
-This vehicle-specific capability is a future requirement and is not part of
-the current profile calibration.
+Routine v1 work should now focus on regression protection, packaging,
+reproducibility, release tooling and documentation.
